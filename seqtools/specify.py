@@ -18,6 +18,10 @@ EXAMPLES
 
 # For short species names + shorter numeric ids:
   -t 'gene=s/^ENS(G|[A-Z]{3}G)0{5}|^MGP_(SPRET|CAROLI|Pahari)EiJ_G0|^WBGene00/G/'
+
+# For parsing the PhylTree extended newick format (long labels):
+
+  -i '^[.*]?(?P<sp>[A-Z][a-z _.-]+)(?:\|.*)?$'
 """
 
 from sys import stdin, stdout
@@ -76,7 +80,11 @@ identifiers = dict(sp=identify_sp, shortsp=identify_shortsp)
 
 def parse_label(label, input_fmt=DEFAULT_IN_FMT, ensembl_version=ENSEMBL_VERSION):
     # NOTE: this is impossible to ask for an output gene label from a species label.
-    infos = re.compile(input_fmt).match(label).groupdict()
+    try:
+        infos = re.compile(input_fmt).match(label).groupdict()
+    except AttributeError as err:
+        err.args += ('label=%r' % label,)
+        raise
     if 'sp' not in infos and 'sp_under' in infos:
         infos['sp'] = infos.pop('sp_under').replace('_', ' ')
     elif 'sp' not in infos and 'sp_dot' in infos:
@@ -217,7 +225,7 @@ if __name__ == '__main__':
     parser.add_argument('inputfile', help='"-" for stdin (requires -f).')
     parser.add_argument('outfile', nargs='?', default=stdout)
     parser.add_argument('-i', '--input-fmt', default=DEFAULT_IN_FMT,
-                        help='[%(default)r]')
+                        help='sequence label regular expression, with named groups [%(default)r]')
     parser.add_argument('-l', '--label-fmt', default=DEFAULT_OUT_FMT,
                         help='[%(default)r]')
     parser.add_argument('-t', '--transform', action='append',

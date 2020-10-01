@@ -15,6 +15,7 @@ This tools recognize different ways of annotating the species at each node:
 """
 
 
+from sys import stderr
 from genomicustools.identify import ultimate_seq2sp
 import logging
 #logging.basicConfig(format='%(levelname)s:%(module)s l.%(lineno)d:%(funcName)s:%(message)s')
@@ -135,10 +136,10 @@ def infer_gene_event(node, taxon, children_taxa):
 # infer_gene_event_taxa
 # infer_gene_events that warns if mismatches between the 2.
 
-def get_children_ete3(node, *args):
+def get_node_children_ete3(node, *args):
     return node.children
 
-def get_children_dyogenprot(node, tree):
+def get_node_children_dyogenprot(node, tree):
     """return children from a node in a LibsDyogen.myProteinTree format."""
     return [ch for ch,_ in tree.data.get(node, [])]
 
@@ -152,7 +153,7 @@ def get_node_name_dyogenprot(node, tree):
                          nodeinfo.get('family_name', '').split('/')[0]))
 
 def infer_gene_event_taxa(node, taxon, children_taxa,
-                          get_children=get_children_ete3,
+                          get_node_children=get_node_children_ete3,
                           get_name=get_node_name_ete3, *args):
 
     """Use taxon information to tell whether a gene tree node is:
@@ -162,14 +163,14 @@ def infer_gene_event_taxa(node, taxon, children_taxa,
     
     param: `children_taxa` must be a set (because the number of *uniq* elements
            is used).
-    param: *args: extra arguments to be passed to `get_children`/`get_node_name`.
+    param: *args: extra arguments to be passed to `get_node_children`/`get_node_name`.
     """
     ### "ambiguous" or "dupspe" value should be returned in case of doubt.
 
     if not children_taxa:
         return 'leaf'
 
-    children = get_children(node, *args)
+    children = get_node_children(node, *args)
     nodename = get_name(node, *args)
     
     if taxon in children_taxa:
@@ -208,7 +209,7 @@ def infer_gene_event_taxa(node, taxon, children_taxa,
 
 
 from collections import defaultdict
-from dendro.bates import dfw_pairs_generalized, iter_leaves
+from dendro.bates import dfw_pairs_generalized, dfw_descendants_generalized, iter_leaves
 
 def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
                                 speciesset=set(('Homo sapiens',)),
@@ -332,4 +333,57 @@ def prottree_extract_genecounts(proteintrees, ancestor, phyltree,
     assert len(ancestor_ancgenes) == len(ancestor_genecounts)
 
     return ancestors, ancestor_ancgenes, ancestor_genecounts, ancestor_spgenes
+
+
+def is_robust(tree, root, phyltree):
+    info = tree.info
+    def get_children(tree, node):
+        return [c for c,_ in tree.data.get(node, [])]
+
+    for parent, children in dfw_descendants_generalized(tree, get_children, queue=[root]):
+                                                        #include_leaves=True):
+        parent_taxon = info[parent]['taxon_name']
+        children_taxa = [info[c]['taxon_name'] for c in children]
+        expected_taxa = [anc for anc,_ in phyltree.items.get(parent_taxon, [])]
+        if set(children_taxa) != set(expected_taxa):
+            return False
+    return True
+
+
+def prottree_list_robusts(proteintrees, phyltree, ancestor=None, from_anc=True):
+    if ancestor is None:
+        ancestor = phyltree.root
+    def get_children(tree, node):
+        return [c for c,_ in tree.data.get(node, [])]
+
+    clades_before_ancestor = set(phyltree.dicLinks[phyltree.root][ancestor])  # includes anc
+    clades_after_ancestor = phyltree.allDescendants[ancestor]  # includes anc
+
+    for tree in proteintrees:
+        info = tree.info
+        rootfamily = info[tree.root]['family_name']
+
+        for parent, node in dfw_pairs_generalized(tree, get_children,
+                                                  include_root=True):
+            taxon = info[node]['taxon_name']
+            if parent is not None:
+                #logger.info('node %s%s', taxon, info[node]['family_name'])
+                parent_taxon = info[parent]['taxon_name']
+                isdup = (info[parent]['Duplication'] > 1)
+            else:
+                parent_taxon = None
+
+            if parent_taxon not in clades_after_ancestor:
+                if taxon in clades_after_ancestor:
+                    if taxon != ancestor and from_anc:
+                        continue
+                    #if isdup: #TODO: handle this case
+                    logger.info('Checking %s at %s', rootfamily, taxon)
+                    if is_robust(tree, node, phyltree):
+                        yield phyltree.fileName[taxon], info[node]['family_name']
+                else:
+                    continue
+
+                #if parent in clades_after_ancestor
+                    # Start checking for robustness.
 

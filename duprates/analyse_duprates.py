@@ -664,16 +664,17 @@ calibrations = pd.concat((pd.Series([phyltree.ages[anc] for anc in ordered_simii
                  ),
                  axis=1, sort=False)
 
-renames = {}
-# feature_longnames_fr.tsv
-with open(str(workdir.parent / 'subtrees_stats' / 'feature_longnames.tsv')) as f:
-    for line in f:
-        ft, longname, *_ = line.rstrip().split('\t')
-        renames[ft] = longname
-
 def analysis_3_regress_duprates(lang_fr=True, dark=False):
     """2020/02/24"""
     loggers[0].setLevel(logging.DEBUG)
+
+    renames = {}
+    # feature_longnames_fr.tsv
+    with open(str(workdir.parent / 'subtrees_stats' / ('feature_longnames_fr.tsv' if lang_fr else 'feature_longnames.tsv'))) as f:
+        for line in f:
+            ft, longname, *_ = line.rstrip().split('\t')
+            renames[ft] = longname
+
     with reroute_loggers(
             HtmlReport(str(workdir / 'familyrates_correlates.html'),
                        style=(css_dark_style if dark else None), css=[myslideshow_css],
@@ -753,7 +754,7 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
                     ['duprate', 'lossrate'], features,
                     ref_suggested_transform=None,
                     impose_transform=aregr._must_transform,
-                    must_drop_features=aregr._must_drop_features.union(('Niter',)),
+                    must_drop_features=aregr._must_drop_features.union(('Niter','lnL','sitelnL')),
                     to_decorr=aregr._must_decorr,
                     protected_features=aregr._protected_features,
                     #must_drop_data=aregr._must_drop_data,  # TODO: without dropping data.
@@ -793,8 +794,11 @@ if __name__ == '__main__':
     #reg = analysis_3_regress_duprates()
 
     # 2020/05/20:
-    analysis_2_alldistribs()
+    #analysis_2_alldistribs()
     # 2020/05/22 11:11
     #analysis_2_alldistribs(restrict_distribs=False, fix_loc=None)
     # 2020/05/22 11:30
     #analysis_2_alldistribs(restrict_distribs=False)
+
+    # 2020/10/01: lassoselect_and_refit now includes an alpha parameter > 0
+    reg = analysis_3_regress_duprates()

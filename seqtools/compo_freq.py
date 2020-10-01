@@ -12,7 +12,7 @@ For the gap count to be meaningful, you should remove columns containing only ga
 from sys import stdin
 import numpy as np
 import argparse
-from Bio import AlignIO
+from Bio import AlignIO, SeqIO
 from collections import Counter
 from seqtools.IUPAC import gaps, nucleotides, unknown, ambiguous, stop_codons
 
@@ -128,8 +128,8 @@ def make_al_compo(alignment, byseq=False):
 
 
 def main(alignment_file, format='fasta', byseq=False):
-    alignment = AlignIO.read(alignment_file, format=format)  # Alphabet=
-    stat_names, stats = make_al_compo(alignment, byseq)
+    sequences = list(SeqIO.parse(alignment_file, format)) if byseq else AlignIO.read(alignment_file, format=format)  # Alphabet=
+    stat_names, stats = make_al_compo(sequences, byseq)
 
     n_stats = len(stats[0])
     

@@ -1911,14 +1911,18 @@ def zscore_dataframe(df, ref_zscore=None):
 
 
 def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
-                          L1_wt=1, cov_type='HC1', out=None, **psummary_kw):
+                          alpha=0.01, L1_wt=1, cov_type='HC1', out=None, **psummary_kw):
     exog = sm.add_constant(a[features])
     if 'const' not in exog:
         logger.warning('No constant added to `exog`: some features are already constant')
     ols = sm.OLS(a[y], exog)
     fitlasso = ols.fit_regularized(method=method,
+                                   alpha=alpha,
                                    L1_wt=L1_wt,  # lasso)
                                    start_params=None)
+    if method=='sqrt_lasso':
+        alpha = 1.1 * np.sqrt(exog.shape[0]) * stats.norm.ppf(1 - 0.05 / (2*exog.shape[1]))
+    print('Regularized fit: %s alpha=%g L1_wt=%g' % (method, alpha, L1_wt), file=out)
 
     NaN_coefs = fitlasso.params.isna()
     if NaN_coefs.all():
@@ -2015,6 +2019,7 @@ class fullRegression(object):
                  'must_drop_features',  # global _must_drop_features
                  'protected_features',  # global _protected_features
                  'must_drop_data',      # global _must_drop_data
+                 'regul_kw',
                  'out', 'logger']  #, 'widget'
 
     init_defaults = {'ref_suggested_transform': dict,
@@ -2022,12 +2027,13 @@ class fullRegression(object):
                      'must_drop_features': set,
                      'to_decorr': Args,
                      'protected_features': set,
-                     'must_drop_data': dict}
+                     'must_drop_data': dict,
+                     'regul_kw': dict}
 
     def __init__(self, same_alls, responses, features,
                  ref_suggested_transform=None, impose_transform=None,
                  must_drop_features=None, to_decorr=None,
-                 protected_features=None, must_drop_data=None,
+                 protected_features=None, must_drop_data=None, regul_kw=None,
                  out=None, logger=None, widget=None):
         for k,v in locals().items():
             if k != 'self':
@@ -2284,7 +2290,8 @@ class fullRegression(object):
         print('\n### Fit of all features (lasso)', file=self.out)
 
         #fitlasso, fit, pslopes, displayed =
-        *_, pslopes0, preslopes0 = lassoselect_and_refit(a_n, y, features, out=self.out)
+        *_, pslopes0, preslopes0 = lassoselect_and_refit(a_n, y, features,
+                                                    out=self.out, **self.regul_kw)
         self.displayed.extend((pslopes0, preslopes0))
 
         #sb.violinplot('null_dS_before', 'abs_age_dev', data=a_n, cut=0);
@@ -2591,7 +2598,9 @@ class fullRegression(object):
 
         self.fitlasso, self.fit, pslopes, preslopes = lassoselect_and_refit(
                                 self.a_n_inde, y, self.inde_features, atol=1e-2,
-                                method='elastic_net', L1_wt=1, cov_type='HC1', out=self.out) #**psummary_kw
+                                #method='elastic_net', L1_wt=1,
+                                cov_type='HC1', out=self.out,
+                                **self.regul_kw) #**psummary_kw
         self.slopes = pslopes.data
         self.reslopes = preslopes.data
         self.displayed.extend((pslopes, preslopes))
@@ -2812,8 +2821,9 @@ class fullRegression(object):
         print('Re-check newly introduced constant features:', file=self.out)
         print(a_n_inde2[inde_features2].agg(np.ptp).sort_values().head(), file=self.out)
 
+        logger.debug('regul_kw = %s', self.regul_kw)
         fitlasso2, refitlasso2, slopes2_styled, reslopes2_styled = \
-                lassoselect_and_refit(a_n_inde2, y, inde_features2, join=param_info, out=self.out)
+                lassoselect_and_refit(a_n_inde2, y, inde_features2, join=param_info, out=self.out, **self.regul_kw)
         self.displayed.extend((slopes2_styled, reslopes2_styled))
         self.fitlasso2 = fitlasso2
         self.refitlasso2 = refitlasso2
@@ -2919,7 +2929,7 @@ class fullRegression(object):
         # fig_columns could also include: ['Lasso coef', 'Simple regression coef']
         if renames is None: renames = {}
         ax_titles = {'coef': 'Multiple regression coefficient',
-                     'lasso coef': 'Lasso regression',
+                     'Lasso coef': 'Lasso regression',
                      'Simple regression coef': 'Simple regression'}
         ncols = len(fig_columns)
         coefs = self.reslopes2  # Should run .do() or .do_bestfit() first.
@@ -2933,8 +2943,8 @@ class fullRegression(object):
         for j, (ft, pval) in enumerate(coefs['P>|z|'].items()):
             txt = axes[0].text(ax0_xmax, j, ('**' if pval<0.01 else '*' if pval<=0.05 else ''),
                                va='center', ha='left') #ha='right')
-        txt_box = txt.get_window_extent()#.get_positions()
-        print(txt_box.x0, txt_box.x1)
+        #txt_box = txt.get_window_extent()#.get_positions()
+        #print(txt_box.x0, txt_box.x1)
         #axes[0].set_xlim(axes[0].get_xlim()[0], )
 
         axes[0].set_xlabel(None)
@@ -2953,7 +2963,7 @@ class fullRegression(object):
             axes[2].set_title(ax_titles.get(fig_columns[2], fig_columns[2]))
         fig = plt.gcf()
         fig.tight_layout()
-        fig.set_size_inches(3+3*len(fig_columns), 6.5)
+        fig.set_size_inches(3+3*len(fig_columns), 0.28 * (coefs.shape[0]+2))
         return fig, axes
         #for ext in ('pdf', 'png'):
         #    plt.savefig('../fig/coefs_fsahmmc+mpl.%s' % ext, bbox_inches='tight')
@@ -3837,10 +3847,12 @@ class regressAncs(object):
     def __getitem__(self, anc):
         return self.all_regressions[anc]
 
-    def __init__(self, description,
+    def __init__(self, description, ancestors, age_analyses, same_alls,
                  out_template='outputs/Regression_{anc}_{desc}.html',
                  **full_dating_kwargs):
         self.description = description
+        self.ancestors = ancestors
+        self.age_analyses = age_analyses
         self.parametrisation = {k: self.param_defaults.get(k, lambda: None)()
                                 for k in self.param_keys}  # It's actually a reparametrisation, or param update.
         # {'rate_settings': } #ref_suggested_transform_anc = 'Catarrhini'
@@ -3853,7 +3865,7 @@ class regressAncs(object):
         #default_full_dating_args = Args(
         default_full_dating_kwargs = dict(
                                     #age_analyses[anc][self.dataset],
-                                    same_alls=same_alls_fsahmmc, #.copy()
+                                    same_alls=same_alls, #.copy()
                                     dataset_params=list(dataset_params_dS),
                                     responses=['abs_dev_age_dS', 'abs_dev_brlen_dS'],
                                     features=list(features),
@@ -3864,6 +3876,7 @@ class regressAncs(object):
                                     to_decorr=dict((k, as_args(args)) for k,args in _must_decorr.items()),
                                     protected_features=set(_protected_features),
                                     must_drop_data=deepcopy(_must_drop_data),
+                                    regul_kw=dict(method='elastic_net', alpha=0.001, L1_wt=1),
                                     logger=logger)
         self.full_dating_kwargs = {**default_full_dating_kwargs,
                                    **full_dating_kwargs}
@@ -3872,7 +3885,8 @@ class regressAncs(object):
 
     @classmethod
     def from_other(cls, other):
-        new = cls(other.description, other.out_template, **other.full_dating_kwargs)
+        new = cls(other.description, other.ancestors, other.out_template,
+                  **other.full_dating_kwargs)
         for attr in ('parametrisation', 'all_regressions', 'all_coeffs',
                 'logger_states', 'dataset', 'ref_suggested_transform',
                 'added_to_params', 'removed_from_params'):
@@ -3961,6 +3975,8 @@ class regressAncs(object):
         print('# Parametrisation\n\n## Main attributes\n', file=file)
         print('Description: %s\nout_template: %r\ndataset: %r\n' % (
                 self.description, self.out_template, self.dataset), file=file)
+        print('ancestors = [%s]\n' % ' '.join(self.ancestors), file=file)
+        print('age_analyses = %s\n' % fmt_dict(self.age_analyses, fmt_dict), file=file)
         print('## full_dating_regression parameters\n', file=file)
         for p in self.param_keys:
             print('%25s:\t%s\n' % (p, self.parametrisation[p]), file=file)
@@ -3972,23 +3988,22 @@ class regressAncs(object):
         print('## Removed from full_dating_regression parameters', file=file)
         for p, v in self.removed_from_params.items():
             print('%s: %s' % (p,v), file=file)
+
         print('## Global variables\n', file=file)
-        print('ordered_simii_anc = [%s]\n' % ' '.join(ordered_simii_anc), file=file)
         print('loggers (name) = %s\n' % [lgr.name for lgr in loggers], file=file)
         #print('myslideshow_css, myslideshow_js', file=file)
-        print('age_analyses = %s\n' % fmt_dict(age_analyses, fmt_dict), file=file)
-        print('same_alls_fsahmmc = %s\n' % same_alls_fsahmmc.info(), file=file)
+        #print('same_alls_fsahmmc = %s\n' % same_alls_fsahmmc.info(), file=file)
         print('features = %s\n' % ' '.join(features), file=file)
         print('dataset_params_dS = %s\n' % ' '.join(dataset_params_dS), file=file)
         print('renames = %s\n' % type(renames), file=file)
 
-    def do(self):
-        #global ordered_simii_anc, loggers, myslideshow_css, myslideshow_js,
+    def do(self, refresh=False):
+        #global loggers, myslideshow_css, myslideshow_js,
         # age_analyses, same_alls_fsahmmc
 
         ref_anc = self.parametrisation['ref_suggested_transform_anc']
-        ref_anc_i = ordered_simii_anc.index(ref_anc)
-        other_ancs = ordered_simii_anc[:ref_anc_i] + ordered_simii_anc[(ref_anc_i+1):]
+        ref_anc_i = self.ancestors.index(ref_anc)
+        other_ancs = self.ancestors[:ref_anc_i] + self.ancestors[(ref_anc_i+1):]
         self.ref_anc, self.ref_anc_i, self.other_ancs = ref_anc, ref_anc_i, other_ancs
 
         self.ref_suggested_transform = None
@@ -4002,7 +4017,7 @@ class regressAncs(object):
                 print('# %d. %s #\n------------------' % (anc_i, anc))
                 reportfile = self.out_template.format(anc=anc, desc=self.description)
                 self.reports.append((anc, reportfile, dt.now()))
-                if anc in self.all_coeffs:
+                if anc in self.all_coeffs and not refresh:
                     print('Already done. SKIP.')
                     continue
                 try:
@@ -4035,7 +4050,7 @@ class regressAncs(object):
 
                         self.all_regressions[anc] = \
                         reg = full_dating_regression(
-                                        age_analyses[anc][self.dataset],
+                                        self.age_analyses[anc][self.dataset],
                                         out=hr, widget=slideshow_generator(hr),
                                         **self.full_dating_kwargs)
                         reg.do_rates(**self.parametrisation['rate_settings'])
@@ -4043,6 +4058,7 @@ class regressAncs(object):
                         reg.cs_rates = reg.cs_rates.assign(**self.parametrisation['rate_reprocess'])
                         hr.print('cs_rates.shape: %s -> %s' % (old_rate_shape, reg.cs_rates.shape))
                         reg.do_undecorred_fit()
+                        reg.do_decorr()
                         self.parametrisation['fix_decorr'](reg)
                         reg.do_decorred_fit()
                         coeffs = reg.do_bestfit()
@@ -4088,22 +4104,22 @@ class regressAncs(object):
 
             hr.print('\n# adjusted R²\n')
             self.all_adjR2 = pd.Series([self.all_regressions[anc].refitlasso2.rsquared_adj
-                                        for anc in ordered_simii_anc],
-                                       index=ordered_simii_anc, name='all_adjR2')
+                                        for anc in self.ancestors],
+                                       index=self.ancestors, name='all_adjR2')
             hr.html(self.all_adjR2.to_frame().style.background_gradient(cmap='YlGn'))
 
             hr.print('\n# Top coefficients\n')
             self.spec_coefs = \
-            spec_coefs = pd.concat([all_coeffs[anc][['coef']] for anc in ordered_simii_anc_byage],
-                                keys=ordered_simii_anc_byage, axis=1, join='outer', sort=False)\
-                      .set_axis(ordered_simii_anc_byage, axis=1, inplace=False)\
+            spec_coefs = pd.concat([all_coeffs[anc][['coef']] for anc in self.ancestors],
+                                keys=self.ancestors, axis=1, join='outer', sort=False)\
+                      .set_axis(self.ancestors, axis=1, inplace=False)\
                       .assign(absmean=lambda df: df.abs().mean(axis=1))\
                       .sort_values('absmean', ascending=False)
 
-            spec_top5_coefs = [all_coeffs[anc]['coef'].index[1:6].tolist() for anc in ordered_simii_anc]
+            spec_top5_coefs = [all_coeffs[anc]['coef'].index[1:6].tolist() for anc in self.ancestors]
             union_top5_coefs = set.union(*(set(s) for s in spec_top5_coefs))
             self.union_top5_coefs = union_top5_coefs
-            spec_top3_coefs = [all_coeffs[anc]['coef'].index[1:4].tolist() for anc in ordered_simii_anc]
+            spec_top3_coefs = [all_coeffs[anc]['coef'].index[1:4].tolist() for anc in self.ancestors]
             union_top3_coefs = set.union(*(set(s) for s in spec_top3_coefs))
             self.union_top3_coefs = union_top3_coefs
             
@@ -4133,9 +4149,9 @@ class regressAncs(object):
 
             # Also check the simple regression coefs, for inconsistencies
             self.spec_simple_coefs = \
-            spec_simple_coefs = pd.concat([all_coeffs[anc][['Simple regression coef']] for anc in ordered_simii_anc_byage],
-                                    keys=ordered_simii_anc_byage, axis=1, join='outer', sort=False)\
-                          .set_axis(ordered_simii_anc_byage, axis=1, inplace=False)\
+            spec_simple_coefs = pd.concat([all_coeffs[anc][['Simple regression coef']] for anc in self.ancestors],
+                                    keys=self.ancestors, axis=1, join='outer', sort=False)\
+                          .set_axis(self.ancestors, axis=1, inplace=False)\
                           .assign(absmean=lambda df: df.abs().mean(axis=1))\
                           .sort_values('absmean', ascending=False)
             #sorted_features = spec_coefs.index.tolist()
@@ -4157,8 +4173,8 @@ class regressAncs(object):
             # The error bars for the barplot:
             spec_conf_int = pd.concat(
                                 [self.all_coeffs[anc][['[0.025', '0.975]']]
-                                 for anc in ordered_simii_anc_byage],
-                                axis=1, sort=False, keys=ordered_simii_anc_byage, verify_integrity=True)
+                                 for anc in self.ancestors],
+                                axis=1, sort=False, keys=self.ancestors, verify_integrity=True)
             # -> index: coefficients
             # -> columns: MultiIndex(( anc, inf/sup ))
 
@@ -4166,14 +4182,14 @@ class regressAncs(object):
             fig, axes = plt.subplots(nrows, ncols,
                                      figsize=(ncols*5, 2+nrows*1.5), sharex=True, sharey=True,
                                      gridspec_kw={'hspace': 0}, squeeze=False)
-            n_anc = len(ordered_simii_anc)
+            n_anc = len(self.ancestors)
             cmap = plt.get_cmap('tab20b', n_anc)  # 'set3', 'viridis'
             barcolors = [cmap(i) for i in range(n_anc)]
 
             letters = 'abcdefghijklmnopqrstuvwxyz'
             x = np.arange(n_anc)
             for lett, ax, coef in zip(letters, axes.flat, sorted_union_top5_coefs[startcoef:]):
-                heights = plotdata.loc[coef, ordered_simii_anc_byage]
+                heights = plotdata.loc[coef, self.ancestors]
                 yerr = np.abs(spec_conf_int.loc[coef].unstack(level=-1).values.T - heights.values)
                 ax.bar(x, heights, color=barcolors, width=0.9, yerr=yerr,
                        capsize=2, error_kw=dict(elinewidth=1, alpha=0.5))
@@ -4182,7 +4198,7 @@ class regressAncs(object):
                 ax.yaxis.set_ticks_position('right')
                 ax.grid(True, axis='y')
                 ax.grid(False, axis='x')
-                ax.annotate(lett+')', (-0.1, 1.1), weight='bold', xycoords='axes fraction')
+                ax.annotate(lett+')', (-0.1, 1.), weight='bold', xycoords='axes fraction', va='top')
             ax.set_xticks(x)
 
             #x_shared_group = axes[-1, -1].get_shared_x_axes()
@@ -4193,7 +4209,7 @@ class regressAncs(object):
                     #x_shared_group.remove(ax)
                     ax = axes[-2, i]
                     ax.tick_params('x', labelbottom=True)
-                ax.set_xticklabels(ordered_simii_anc_byage, rotation=45, va='top', ha='right');
+                ax.set_xticklabels(self.ancestors, rotation=45, va='top', ha='right');
 
             fig.tight_layout()
             #return fig
@@ -4219,8 +4235,8 @@ class regressAncs(object):
                                 [self.all_coeffs[anc][
                                     ['Simple regression [0.025',
                                      'Simple regression 0.975]']]
-                                 for anc in ordered_simii_anc_byage],
-                                axis=1, sort=False, keys=ordered_simii_anc_byage, verify_integrity=True)
+                                 for anc in self.ancestors],
+                                axis=1, sort=False, keys=self.ancestors, verify_integrity=True)
             # -> index: coefficients
             # -> columns: MultiIndex(( anc, inf/sup ))
 
@@ -4228,17 +4244,17 @@ class regressAncs(object):
             fig, axes = plt.subplots(nrows, ncols,
                                      figsize=(ncols*5, 2+nrows*1.5), sharex=True, sharey=True,
                                      gridspec_kw={'hspace': 0}, squeeze=False)
-            n_anc = len(ordered_simii_anc)
+            n_anc = len(self.ancestors)
             cmap = plt.get_cmap('tab20b', n_anc)  # 'set3', 'viridis'
             barcolors = [cmap(i) for i in range(n_anc)]
 
             x = np.arange(n_anc)
             for ax, coef in zip(axes.flat, sorted_union_top5_coefs[startcoef:]):
-                heights = plotdata.loc[coef, ordered_simii_anc_byage]
+                heights = plotdata.loc[coef, self.ancestors]
                 yerr = np.abs(spec_conf_int.loc[coef].unstack(level=-1).values.T - heights.values)
                 ax.bar(x, heights, color=barcolors, width=-0.4, align='edge',
                        yerr=yerr, capsize=2, error_kw=dict(elinewidth=1, alpha=0.5))
-                heights2 = plotdata2.loc[coef, ordered_simii_anc_byage]
+                heights2 = plotdata2.loc[coef, self.ancestors]
                 yerr2 = np.abs(spec_conf_int2.loc[coef].unstack(level=-1).values.T - heights2.values)
                 ax.bar(x, heights2, color='gray', width=0.4, align='edge',
                        yerr=yerr2, capsize=2, error_kw=dict(elinewidth=1, alpha=0.3))
@@ -4258,7 +4274,7 @@ class regressAncs(object):
                     #x_shared_group.remove(ax)
                     ax = axes[-2, i]
                     ax.tick_params('x', labelbottom=True)
-                ax.set_xticklabels(ordered_simii_anc_byage, rotation=45, va='top', ha='right');
+                ax.set_xticklabels(self.ancestors, rotation=45, va='top', ha='right');
                     
             fig.tight_layout()
             if save:

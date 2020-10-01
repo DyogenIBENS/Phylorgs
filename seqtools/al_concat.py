@@ -57,8 +57,23 @@ def main():
     parser.add_argument('infiles', nargs='*',
         help='Either several files, or, if stdin, many alignments joined by "//" lines.')
     parser.add_argument('-f', '--fmt', default='fasta', help='input/output format [%(default)s]')
+    parser.add_argument('-l', '--from-list', action='store_true',
+                        help='read file names from the file given as the first positional argument, or stdin')
     args = parser.parse_args()
-    msa = al_concat(args.infiles, args.fmt)
+    if args.from_list:
+        if not args.infiles:
+            infiles = [line.rstrip() for line in stdin if not line.startswith('#')]
+        else:
+            infiles = []
+            for infile in args.infiles:
+                with open(infile) as f:
+                    for line in f:
+                        if not line.startswith('#'):
+                            infiles.append(line.rstrip())
+    else:
+        infiles = args.infiles
+
+    msa = al_concat(infiles, args.fmt)
     AlignIO.write(msa, stdout, args.fmt)
 
 

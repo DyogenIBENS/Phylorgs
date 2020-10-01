@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 
 
+"""
+"Robust" or "constrained" trees are gene trees without duplication or loss.
+"""
+
 from sys import stderr, setrecursionlimit, exit
 import os.path as op
 import argparse as ap
@@ -13,7 +17,7 @@ from copy import deepcopy
 from collections import defaultdict
 
 from LibsDyogen import myPhylTree, myProteinTree, myFile
-from lateralite.find_candidates import tree_extract_genecounts
+from lateralite.candidate_finder import tree_extract_genecounts
 from genomicustools.identify import convert_gene2species
 
 import logging

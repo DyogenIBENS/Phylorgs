@@ -14,6 +14,7 @@ ToolsDyogen_py3  GPL-v3 & CeCILL because of LibsDyogen
 IPython          BSD
 scikit-learn     BSD
 statsmodels      BSD-3
+cvxopt           GPL-v3
 scikit-bio       BSD
 BeautifulSoup4   MIT
 requests         Apache2

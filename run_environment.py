@@ -93,14 +93,14 @@ def get_staged_changed(moduledir, timeout=10):
     return out.rstrip().split('\n') if out else []
 
 
-def print_git_state(module=None, modulepath=None, sep='\n', timeout=10):
+def print_git_state(module=None, modulepath=None, sep='\n', file=None, timeout=10):
     moduledir, mfile = get_git_repo(module, modulepath)
     state = ['%s:%s' % (socket.gethostname(), moduledir), '-'*50]
     state += get_git_commit(moduledir, timeout=timeout) + ['']
     state += ['# File %s' % mfile] + get_git_commit(moduledir, mfile, timeout=timeout) + ['']
     state += ['# Staged changes in:'] + get_staged_changed(moduledir, timeout) + ['']
     state += ['# Unstaged changes in:'] + get_unstaged_changed(moduledir, timeout) + ['']
-    print(sep.join(state))
+    print(sep.join(state), file=file)
 
 
 def redisplay():
