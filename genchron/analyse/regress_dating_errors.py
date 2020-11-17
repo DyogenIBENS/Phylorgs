@@ -2838,14 +2838,14 @@ class fullRegression(object):
         #print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
         #        refitlasso2.fvalue, self.F_pval2, self.lL2), file=self.out)
 
-        # Plot Y~X with each coef (the 10 largest).
+        # Plot Y~X with each coef (the 15 largest).
         fit_figs = []
-        iter_coeffs = range(1, min(11, len(self.slopes2.index)))
+        iter_coeffs = range(1, min(16, len(self.slopes2.index)))
         if self.widget is not None:
             iter_coeffs = self.widget(iter_coeffs)
         for coef_i in iter_coeffs:
             fig, ax = plt.subplots()
-            scatter_density(a_n_inde2[y], a_n_inde2[self.slopes2.index[coef_i]], alpha=0.4, ax=ax)
+            scatter_density(a_n_inde2[self.slopes2.index[coef_i]], a_n_inde2[y], alpha=0.4, ax=ax)
             x = np.array(ax.get_xlim())
             a, b = reslopes2.loc[['const', self.slopes2.index[coef_i]], 'Simple regression coef']
             ax.plot(x, 0 + b*x, '--', label='Simple Regression line (a=%g b=%g)' % (0,b))
@@ -2861,6 +2861,8 @@ class fullRegression(object):
             ax.set_xlabel(self.slopes2.index[coef_i])
             fit_figs.append(fig)
             self.show(); plt.close()
+            #ax = sb.regplot(a_n_inde2[self.slopes2.index[coef_i]], a_n_inde2[y])
+            #self.show(); plt.close()
         self.displayed.append(fit_figs)
 
         # Residual plot

@@ -141,7 +141,7 @@ class Args(object):
         self.kwargs.update(other.kwargs)
         return self
 
-    def __or__(self, other):  # Shouldn't it be __or__ ?
+    def __or__(self, other):
         #other = as_args(other)
         result = Args.fromcontent(self.args+[a for a in other if a not in self.args],
                                   self.kwargs)

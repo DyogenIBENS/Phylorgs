@@ -664,7 +664,7 @@ calibrations = pd.concat((pd.Series([phyltree.ages[anc] for anc in ordered_simii
                  ),
                  axis=1, sort=False)
 
-def analysis_3_regress_duprates(lang_fr=True, dark=False):
+def analysis_3_regress_duprates(lang_fr=True, dark=False, suffix=''):
     """2020/02/24"""
     loggers[0].setLevel(logging.DEBUG)
 
@@ -676,7 +676,7 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
             renames[ft] = longname
 
     with reroute_loggers(
-            HtmlReport(str(workdir / 'familyrates_correlates.html'),
+            HtmlReport(str(workdir / ('familyrates_correlates%s.html' % suffix)),
                        style=(css_dark_style if dark else None), css=[myslideshow_css],
                        scripts=[myslideshow_js], external_content=True),
             loggers) as hr:
@@ -723,7 +723,7 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
         features.remove('nodes_robust')
         features.remove('single_child_nodes')
         features.remove('ns')
-        features.remove('Nbranches')
+        #features.remove('Nbranches')
         # Also: Niter correlates with sitelnL and Ringroup_nucl_parsimony_std
         hr.html(alls.groupby(['duprate_nonzero', 'really_robust'])\
                 .size().unstack()) #.style.caption('Comparison between generax and treebest robustness.'))
@@ -732,6 +732,23 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
                 .groupby(['duprate_nonzero', 'Ndup_nonzero'])\
                 .size().unstack()) #.style.caption('Comparison between generax and treebest duplications.'))
 
+        must_transform = {**aregr._must_transform}
+                          #**dict(ingroup_nucl_parsimony_std=binarize,
+                          #       ingroup_mean_gaps=binarize,
+                          #       unlike_clock=binarize,
+                          #       ingroup_mean_GC=binarize,
+                          #       hmmc_propseqs=binarize,
+                          #       bootstrap_min=binarize,
+                          #       gb_Nblocks=binarize)}
+        must_decorr = {k: Args.fromcontent(args.content) for k,args in aregr._must_decorr.items()}
+        for pair in [('ingroup_nucl_parsimony_std', 'ingroup_nucl_parsimony_mean'),
+                    ('ingroup_nucl_entropy_std', 'ingroup_nucl_entropy_mean'),
+                    ('ingroup_codon_parsimony_std', 'ingroup_codon_parsimony_mean'),
+                    ('ingroup_codon_entropy_std', 'ingroup_codon_entropy_mean')]:
+            must_decorr[check_unregress].remove_item(0,pair)
+            # .additem()
+            must_decorr[decorrelatelogs].append(pair)
+        must_drop_features = aregr._must_drop_features.union(('Niter','Nbranches','lnL','sitelnL', 'ingroup_nucl_parsimony_std', 'ingroup_codon_parsimony_std', 'ingroup_nucl_entropy_median'))
         hr.mkd('# Regression')
         try:
             #reg = fullRegression(
@@ -750,27 +767,32 @@ def analysis_3_regress_duprates(lang_fr=True, dark=False):
             #        widget=slideshow_generator(hr)
             #        )
             #TODO:
-            reg = full_dating_regression(analysis_fsa, alls, dataset_params_dS,
+            reg = full_dating_regression(analysis_fsa, alls.query('duprate>1e-7'),
+                    dataset_params_dS,
                     ['duprate', 'lossrate'], features,
                     ref_suggested_transform=None,
-                    impose_transform=aregr._must_transform,
-                    must_drop_features=aregr._must_drop_features.union(('Niter','lnL','sitelnL')),
-                    to_decorr=aregr._must_decorr,
+                    impose_transform=must_transform,
+                    must_drop_features=must_drop_features,
+                    to_decorr=must_decorr,
                     protected_features=aregr._protected_features,
+                    #must_drop_data={'duprate': (1e-7,)},
                     #must_drop_data=aregr._must_drop_data,  # TODO: without dropping data.
+                    regul_kw=dict(alpha=0.02),
                     out=hr,
-                    logger=loggers[0],
-                    widget=slideshow_generator(hr)
+                    logger=loggers[0], widget=slideshow_generator(hr)
                     )
             reg.do_rates(dict(dist_measures=['star_branch_dS'],
                          branchtime='star_median_brlen_dS',
                          mean_condition='type!="dup"',
                          weighted=True))  # Approx method
             print('## Rates computed (spe2spe approx).', file=hr)
+            reg.cs_rates.rename(columns=lambda c: c.replace('star_', ''), inplace=True)
             print(reg.cs_rates.head(), file=hr)
             coefs = reg.do()
+            print('mean of duprates: %g ; std: %g' % (reg.a_n_inde2.duprate.mean(),
+                    reg.a_n_inde2.duprate.std()), file=hr)
             fig, axes = reg.plot_coefs(renames=renames)
-            outfig = 'familyrates_correlates_coefs.pdf'
+            outfig = 'familyrates_correlates%s_coefs.pdf' % suffix
             fig.savefig(str(workdir / outfig), bbox_inches='tight')
             plt.close()
             hr.mkd('\n![Tree features coefficients of regression](%s)\n' % outfig)
@@ -801,4 +823,9 @@ if __name__ == '__main__':
     #analysis_2_alldistribs(restrict_distribs=False)
 
     # 2020/10/01: lassoselect_and_refit now includes an alpha parameter > 0
-    reg = analysis_3_regress_duprates()
+    #reg = analysis_3_regress_duprates()
+    #reg = analysis_3_regress_duprates(suffix='_withsitelnL')
+    # 2020/10/05
+    #reg = analysis_3_regress_duprates(suffix='_nodecorr-parsimony-std')
+    #reg = analysis_3_regress_duprates(suffix='_noparsimony-std')
+    reg = analysis_3_regress_duprates(suffix='_nonnullduprate')

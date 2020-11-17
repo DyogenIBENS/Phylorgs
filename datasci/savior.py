@@ -346,12 +346,13 @@ class HtmlReport(Report):
             self.handle.write('</pre>\n')
             self.printing = False
         if exc_type is not None:
-            err_name = exc_type.__name__.strip("'")
-            colored_etype = '<span style="color:red;">%s</span>' % err_name
-            self.handle.write('<pre><hr style="margin:0;padding:0;border:1px dashed red;" />\n' + colored_etype +'\n')
             fmtted_exc = [line.translate(trans_special_html_char) for line in
                           traceback.format_exception(exc_type, exc_value, tb)]
+            print('\n'.join(fmtted_exc) + '\n', file=sys.stderr)
+            err_name = exc_type.__name__.strip("'")
+            colored_etype = '<span style="color:red;">%s</span>' % err_name
             fmtted_exc[-1] = fmtted_exc[-1].replace(err_name, colored_etype)
+            self.handle.write('<pre><hr style="margin:0;padding:0;border:1px dashed red;" />\n' + colored_etype +'\n')
             self.handle.write('\n'.join(fmtted_exc) + '\n</pre>\n')
 
         self.close()
@@ -575,7 +576,7 @@ def generate_slideshow(hr: HtmlReport, nmax: int=100, **attrs):
                 #hr.show(bare=True)
                 #plt.close()
             # Capture a break:
-            except StopIteration:
+            except StopIteration as err:
                 # Unsure but this might be closing hr.
                 break
             finally:
