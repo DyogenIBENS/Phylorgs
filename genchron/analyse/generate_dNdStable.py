@@ -31,7 +31,7 @@ np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
-ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)ENS')
+ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)(ENS|$)')
 # ~~> genomicus.my_identify?
 
 BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
@@ -303,7 +303,7 @@ def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
         #    break
 
     assert seqids
-    
+
     # Get the line listing all branches
     while not regex_lnL.match(line):
         line = mlc.readline()
@@ -373,7 +373,7 @@ def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
         ws = [float(x) for x in
             re.match('w:( +[0-9]+\.[0-9]+)+$', mlc.readline()).group(1).split()]
         omegas = [np.average(ws, weights=sitefrac)] * len(branches)
-        
+
     assert len(branches) == len(omegas) and len(branches) <= len(lengths), \
             (len(branches), len(omegas), len(lengths))
     branch_tw = list(zip(branches, lengths, omegas))
@@ -395,7 +395,6 @@ def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
             # This leaf is not a species node. skip.
             pass
 
-    # branches follow the order of the newick string.
     while branches:
         br = branches.pop()
         base, tip = br.split('..')
@@ -407,10 +406,12 @@ def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
         try:
             tip_id = nb2id[tip]
             found_tips = fulltree.search_nodes(name=tip_id)
+            if len(found_tips) > 1:
+                logger.error('Fulltree has nodes with identical names. The correct conversion is not guaranteed.')
             try:
-                base_node = found_tips[0].up
+                base_node = found_tips[-1].up
             except IndexError as err:
-                logger.warning('Node %s:%r not found in fulltree', tip, tip_id)
+                logger.error('Node %s:%r not found in fulltree', tip, tip_id)
                       #file=sys.stderr)
                 # TODO: search in tree_ids, then detached_subtrees.add()
                 detached_subtrees.add(tip)
@@ -424,11 +425,21 @@ def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
                 continue
 
             base_id = base_node.name
+            if 'nb' not in base_node.features:
+                # Add number in the fulltree:
+                base_node.add_feature('nb', base)
+                # Avoid duplicate IDs.
+                duplicated = 0
+                base_id_fmt = base_id + '%d'
+                while base_id in id2nb:
+                    logger.warning('base_id %r already seen. Increment.', base_id)
+                    duplicated += 1
+                    base_id = base_id_fmt % duplicated
+                    base_node.name = base_id
+                nb2id[base] = base_id
+                id2nb[base_id] = base
+
             debug_msg += "%s -> %s  " % (base_id, tip_id)
-            nb2id[base] = base_id
-            id2nb[base_id] = base
-            # Add number in the fulltree:
-            base_node.add_feature('nb', base)
             logger.debug(debug_msg + 'Ok')
         except KeyError as e:
             #if base in detached_subtrees:
@@ -651,8 +662,8 @@ def rm_erroneous_ancestors(fulltree, phyltree):  # ~~> genomicustools
             try:
                 taxon = ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
             except AttributeError:
-                raise ValueError("Can not match species name in %r" % \
-                                   node.name)
+                raise ValueError("Can not match species name in %r [children: %s]" % \
+                                   (node.name, ' '.join(c.name for c in node.children)))
             if len(node.children) <= 1:
                 if hasattr(node, 'reinserted'):
                     if phyltree.ages[taxon] > 0:

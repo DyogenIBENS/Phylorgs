@@ -34,7 +34,7 @@ from genomicustools.identify import ultimate_seq2sp, SP2GENEID
 
 ENSEMBL_VERSION = 87
 
-KEYS = ('gene', 'sp', 'shortsp')  # Sorted by dependency order
+KEYS = ('gene', 'sp', 'shortsp', 'ENSG_PREFIX')  # Sorted by dependency order
 DEFAULT_IN_FMT = r'(?P<gene>.*)'  # Use the named group feature.
 # Here we capture the whole string as the gene name.
 DEFAULT_OUT_FMT = TREEBEST_OUT_FMT = '{gene}_{sp}'
@@ -75,7 +75,12 @@ def identify_shortsp(infos, ensembl_version):
     return special_long2short.get(sp,
                                   SP2GENEID[ensembl_version][sp][3:6].capitalize())
 
-identifiers = dict(sp=identify_sp, shortsp=identify_shortsp)
+def identify_ENSG_PREFIX(infos, ensembl_version):
+    sp = infos['sp']
+    return SP2GENEID[ensembl_version][sp]
+
+identifiers = dict(sp=identify_sp, shortsp=identify_shortsp,
+                   ENSG_PREFIX=identify_ENSG_PREFIX)
 
 
 def parse_label(label, input_fmt=DEFAULT_IN_FMT, ensembl_version=ENSEMBL_VERSION):
@@ -225,7 +230,9 @@ if __name__ == '__main__':
     parser.add_argument('inputfile', help='"-" for stdin (requires -f).')
     parser.add_argument('outfile', nargs='?', default=stdout)
     parser.add_argument('-i', '--input-fmt', default=DEFAULT_IN_FMT,
-                        help='sequence label regular expression, with named groups [%(default)r]')
+                        help=('sequence label regular expression, with named '
+                            'groups [%(default)r]. Valid keys: gene sp shortsp'
+                            'sp_dot sp_under.'))
     parser.add_argument('-l', '--label-fmt', default=DEFAULT_OUT_FMT,
                         help='[%(default)r]')
     parser.add_argument('-t', '--transform', action='append',
