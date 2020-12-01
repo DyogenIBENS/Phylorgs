@@ -338,12 +338,12 @@ def update_subtree_combinations(n, tot, roots_1_counts, tree_0):
 def maddison_test(observed_1, tot, tree, roots_1, root=None, roots_0=None,
                   alternative='>=', check=False):
     """
+    :param: `observed_1`: Observed state changes in branches with background state 1
+    :param: `tot`:        All observed state changes.
     :param: `tree`:       The complete tree. Needed to compute possibilities
                           regardless of the branch background states.
     :param: `roots_1`:    list of node names whose leading branch+subtree have
                           the background state of 1
-    :param: `observed_0`: Observed state changes in branches with background state 0
-    :param: `tot`:        All observed state changes.
     :param: `roots_0`:    nodes where the background state reverted from 1 to 0.
 
     Return the probability of at least observed_1 changes in branches_1.
