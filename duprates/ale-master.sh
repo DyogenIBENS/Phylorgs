@@ -33,7 +33,7 @@ al_phy="${al_root}_protfsa.species.phy"
 dataroot="${al_root}_pb"
 
 # If needed, translate because we will align aa.
-#$SCRIPTS/seqtools/fasta_translate.py "$subtree_phy" "${subtree_prot_phy}"
+#$SCRIPTS/seqtools/seq_translate.py "$subtree_phy" "${subtree_prot_phy}"
 
 $SCRIPTS/seqtools/specify.py -e 93 -f nwk -l '{shortsp}_{gene}' \
     -t 'gene=s/^ENS(G|[A-Z]{3}G)0{5}/G/' "$subtree_input" "$subtree_species"

@@ -36,7 +36,7 @@ rule translate:
 	input: rules.shorten.output
 	output: "{outdir}/{genefam}_prot.fa"
 	shell:
-		"{workflow.basedir}/../seqtools/fasta_translate.py {input} {output}"
+		"{workflow.basedir}/../seqtools/seq_translate.py {input} {output}"
 
 rule align:
 	input: rules.translate.output

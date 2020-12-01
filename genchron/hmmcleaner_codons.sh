@@ -23,7 +23,7 @@ SCRIPTS="$HOME/scripts"
 
 # Ungap and Convert to protein alignment
 #$SCRIPTS/seqtools/ungap.py "$inputal" |\
-$SCRIPTS/seqtools/fasta_translate.py "${inputal}" "${inputbase}_prot.fa"
+$SCRIPTS/seqtools/seq_translate.py "${inputal}" "${inputbase}_prot.fa"
 
 # Run HmmCleaner on the proteins
 HmmCleaner.pl "${inputbase}_prot.fa" >"${inputbase}_prot_cleanedcounts.txt"
