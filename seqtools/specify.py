@@ -30,6 +30,7 @@ import re
 import argparse
 from Bio import SeqIO
 from genomicustools.identify import ultimate_seq2sp, SP2GENEID
+from UItools.sed import parse_simple_subst
 
 
 ENSEMBL_VERSION = 87
@@ -105,31 +106,6 @@ def parse_label(label, input_fmt=DEFAULT_IN_FMT, ensembl_version=ENSEMBL_VERSION
     return infos
 
 
-REGEX_INT = re.compile(r'\d+')
-
-
-def parse_simple_sed_subst(command: str):
-    """Make a substitution function from a sed-like expression.
-    The pattern can be any valid python re regex."""
-    if command.startswith('s'):
-        splitter = command[1]  # Usually '/'
-    _, pattern, repl, modifiers = command.split(splitter)
-    flags = False
-    if 'Ii' in modifiers:
-        flags |= re.I
-    if 'mM' in modifiers:
-        flags | re.M
-    regex = re.compile(pattern, flags)
-    match_counts = REGEX_INT.search(modifiers)
-    count = 1
-    if 'g' in modifiers:
-        count = 0
-    elif match_counts:
-        count = int(match_counts.group(0))
-
-    def substituter(string): return regex.sub(repl, string, count)
-    return substituter
-
 DEFAULT_TRANSFORMS = dict(sp=lambda string: string.replace(' ', '.'))
 # NOTE that CAFE v5 (Hahn et al) does not accept dots in species names...
 
@@ -201,7 +177,7 @@ def specify(inputfile, outfile, input_fmt=DEFAULT_IN_FMT,
     if transform is not None:
         for arg in transform:
             key, val = arg.split('=', 1)
-            transforms[key] = parse_simple_sed_subst(val)
+            transforms[key] = parse_simple_subst(val)
 
     if file_fmt == 'nwk':
         import ete3
