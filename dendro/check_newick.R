@@ -58,14 +58,16 @@ tr <- read.tree(argopts$args[1])
 opts <- argopts$opts
 
 
+rooted <- is.rooted(tr)
+binary <- is.binary(tr)
 
 if( !opts[['-q']] )
-  cat(Ntip(tr), "tips:", paste(tr$tip.label, collapse=','), '\n',
-      "is.rooted:", is.rooted(tr), "\n",
-      "is.binary:", is.binary(tr), "\n", sep='')
+  cat(Ntip(tr), " tips: ", paste(tr$tip.label, collapse=','), '\n',
+      "is.rooted:", ifelse(rooted, '', '\033[31m'), rooted, ifelse(rooted, '', '\033[00m'), "\n",
+      "is.binary:", ifelse(binary, '', '\033[31m'), binary, ifelse(binary, '', '\033[00m'), "\n", sep='')
 
-fail <- (opts[['-r']] && !is.rooted(tr)) || ( opts[['-R']] && is.rooted(tr))
-fail <- fail || (opts[['-b']] && !is.binary(tr)) || (opts[['-B']] && is.binary(tr))
+fail <- (opts[['-r']] && !rooted) || ( opts[['-R']] && rooted)
+fail <- fail || (opts[['-b']] && !binary) || (opts[['-B']] && binary)
 
 min_thr <- 0.0000001
 max_thr <- 10
