@@ -65,5 +65,7 @@ parserchoice = {'phyltree': iter_from_phyltree,
                 'Prottree': iter_from_prottree,
                 'ete3':     iter_from_ete3,
                 'Ete3':     iter_from_ete3,
+                'ete3_f1':  lambda treefile: iter_from_ete3(treefile, format=1),
+                'Ete3_f1':  lambda treefile: iter_from_ete3(treefile, format=1),
                 'skbio':    iter_from_skbio,
                 'biophylo': iter_from_biophylo}

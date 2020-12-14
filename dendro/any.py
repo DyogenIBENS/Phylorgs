@@ -190,5 +190,6 @@ class BioNexus(TreeMethod):
 methodchoice = {'phyltree': myPhylTree,
                 'proteintree': myProteinTree,
                 'ete3': ete3,
+                'ete3_f1': ete3,
                 'biophylo': BioPhylo,
                 'bionexus': BioNexus}
