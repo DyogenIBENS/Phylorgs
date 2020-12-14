@@ -32,7 +32,7 @@ np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)(ENS|$)')
-# ~~> genomicus.my_identify?
+# ~~> genomicustools.identify
 
 BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
                      for s in ('', '_median', '_95%_HPD', '_range')).union(('posterior',))
@@ -162,7 +162,8 @@ def load_fulltree(resultfile, replace_nwk='.mlc', replace_by='.nwk'):
             logger.error("\nNewickError: Unexisting tree file %r" % nwkfile)
         sys.exit(2)
 
-    fulltree.add_feature('treename', os.path.basename(rootname))
+    fulltree.add_features(basename=os.path.basename(rootname),
+                          dirname=os.path.dirname(rootname))
     return fulltree
 
 
@@ -283,6 +284,8 @@ def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
     regex_w    = re.compile(r'^w \(dN/dS\) for branches:')
     regex_freqtable = re.compile('^Codon position x base \(3x4\) table for each sequence\.$')
     regex_seqid = re.compile('^#(\d+): (.*)$')
+
+    logger.debug('Starting mlc stream at byte %s.', mlc.tell())
 
     line = eat_lines_uptomatch(mlc, regex_freqtable)
 
@@ -443,15 +446,15 @@ def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
         except KeyError as e:
             #if base in detached_subtrees:
             # I assume a progression from leaves to root, otherwise I will miss nodes
-            logger.debug(debug_msg + 'Detached')
+            logger.debug(debug_msg + 'Detached (%r not in nb2id -> %r)', tip, e)
             #else:
             # Not found now, put it back in the queue for later
             #    branches.insert(0, (base, tip))
             #    logger.debug('KeyError')
 
     logger.debug(tree_nbs.get_ascii())
-    logger.debug(tree_ids.get_ascii())
-    logger.debug(fulltree)
+    logger.debug('tree_ids:' + tree_ids.get_ascii())
+    logger.debug('fulltree: ' + fulltree.get_ascii())
     #logger.debug(fulltree.get_ascii())
     #printtree(fulltree, features=['nb'])
     #showtree(fulltree)
@@ -609,6 +612,8 @@ def set_dNdS_fulltree(fulltree, id2nb, dNdS, raise_at_intermediates=True):
                     #totals = {valname: datatable[node.name] for valname, i in colindex.items()}
 
                 except KeyError as err:
+                    logger.debug('id2nb = %s', id2nb)
+                    err.args = (err.args[0] + ' (parent=%r node=%r)' % (parent.name, node.name),)
                     raise
     
             if intermediates: # this `if` is not necessary, maybe more efficient
@@ -1130,7 +1135,8 @@ def bound_average(fulltree, calibration, todate=isdup,
                   correct_unequal_calibs='default',  # 'mine','pathd8','ignore'
                   fix_conflict_ages=True,
                   keeproot=False,
-                  calib_selecter=None, node_info=None, node_feature_setter=None):
+                  calib_selecter=None, node_info=None, node_feature_setter=None,
+                  dataset_fmt='{basename}'):
 
     """
     Normalize duplication node position between speciation nodes.
@@ -1239,7 +1245,7 @@ def bound_average(fulltree, calibration, todate=isdup,
                          getattr(node.up, 'name', None)] +
                         [subtree[scname][attr] for attr,_ in node_info] +
                         [getattr(node, ft) for ft,_ in node_feature_setter] +
-                        [fulltree.name, getattr(fulltree, 'treename', '')])
+                        [fulltree.name, dataset_fmt.format(**vars(fulltree))])
             logger.debug(debug_msg + "Leaf")
         else:
             #try:
@@ -1280,7 +1286,7 @@ def bound_average(fulltree, calibration, todate=isdup,
                              getattr(node.up, 'name', None)] +
                             [subtree[scname][attr] for attr,_ in node_info] +
                             [getattr(node, ft) for ft,_ in node_feature_setter] +
-                            [fulltree.name, getattr(fulltree, 'treename', '')])
+                            [fulltree.name, dataset_fmt.format(**vars(fulltree))])
 
                 node.add_features(**{'age_'+m: node_age for m in measures})
 
@@ -1384,7 +1390,7 @@ def bound_average(fulltree, calibration, todate=isdup,
                                     [getattr(nextnode, ft)
                                         for ft,_ in node_feature_setter] +
                                     [fulltree.name,
-                                     getattr(fulltree, 'treename', '')])
+                                     dataset_fmt.format(**vars(fulltree))])
                         for i, m in enumerate(measures):
                             nextnode.add_feature('age_'+m, age[i])
                         # When climbing up to next spe, need to increment
@@ -1405,8 +1411,9 @@ def bound_average(fulltree, calibration, todate=isdup,
                 if set(cal_nodes) != set(nodecopy.children):
                     logger.debug('=> subtree %s', nodecopy.name)
                     for clf in cal_nodes:
-                        logger.debug('=> clf children: %s',
-                                ' '.join(c.name for c in clf.children))
+                        logger.debug('=> Calibrated leaf %r: children: %s',
+                                clf.name,
+                                ' '.join('%r' % c.name for c in clf.children))
                         for clfch in clf.get_children():  # Copy!!
                             logger.debug('=> detach %s', clfch.name)
                             clfch.detach()
@@ -1436,7 +1443,7 @@ def tabulate_ages_from_tree(fulltree, todate=true,
                             measures=['height'],
                             keeproot=True,
                             node_info=None,
-                            node_feature_setter=None):
+                            node_feature_setter=None, dataset_fmt='{basename}'):
 
     node_info = [] if node_info is None \
                 else [(getinfo[0], lambda node: getattr(node, attr, None))
@@ -1474,7 +1481,7 @@ def tabulate_ages_from_tree(fulltree, todate=true,
                      getattr(node.up, 'name', None)] +
                     [subtree[node.name][attr] for attr,_ in node_info] +
                     [getattr(node, ft) for ft,_ in node_feature_setter] +
-                    [fulltree.name, getattr(fulltree, 'treename', '')])
+                    [fulltree.name, dataset_fmt.format(**vars(fulltree))])
     return ages
 
 
@@ -1509,7 +1516,7 @@ def save_fulltree(fulltree, opened_outfile):
     fulltree = del_singletons(fulltree)  # Move that outside the script (unix philosophy)
 
     features = (set.union(*(set(n.features) for n in fulltree.traverse()))
-                - set(('name', 'dist', 'support', 'treename', 'N*dN', 'S*dS')))
+                - set(('name', 'dist', 'support', 'basename', 'dirname', 'ndataset', 'N*dN', 'S*dS')))
     # features = ['nb', 'cal', 'type', 'branch_dist', 't', 'dS', 'dN',
     #             'age_dist', 'age_t', 'age_dS', 'age_dN'],
     if fulltree.children:
@@ -1539,13 +1546,19 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
         - length length_95%_HPD length_median length_range
         - rate rate_95%_HPD rate_median rate_range
     """
-    fulltree = load_fulltree(resultfile, replace_nwk, replace_by)
-    rm_erroneous_ancestors(fulltree, phyltree)
+    orig_fulltree = load_fulltree(resultfile, replace_nwk, replace_by)
+    rm_erroneous_ancestors(orig_fulltree, phyltree)
     if CODEML_MEASURES.intersection(measures):
         regex_dataset = re.compile(r'^Data set \d+$')
         with open(resultfile) as mlc:
             ndataset = 1
             while true:
+                logger.debug('# Dataset %d from %s', ndataset, resultfile)
+                fulltree = orig_fulltree.copy()
+                fulltree.add_feature('ndataset', ndataset)
+                logger.debug('fulltree %r: %d nodes; %d leaves; newick: %s',
+                             fulltree.name, len(list(fulltree.traverse())), len(fulltree),
+                             fulltree.write(outfile=None, format=1, format_root_node=True))
                 id2nb, nb2id, tree_nbs, br_tw, model = branch2nb(mlc, fulltree)
                 dNdS, dStreeline, dNtreeline = get_dNdS(mlc, skiptrees=(model!=1))
 
@@ -1568,6 +1581,7 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                 e.args = ("Unexisting tree file %r" % resultfile,)
             raise
 
+        fulltree = orig_fulltree.copy()
         update_tree_nodes(fulltree, tree,
                           update_features=['dist' if m=='beast:dist' else m
                                            for m in measures],
@@ -1610,35 +1624,34 @@ def set_subtrees_distances(subtrees, measure):
 def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_by='.nwk',
             measures=['dS'], todate="isdup", unweighted=False,
             original_leading_paths=False, correct_unequal_calibs='default',
-            fix_conflict_ages=True, keeproot=False):
+            fix_conflict_ages=True, keeproot=False, dataset_fmt='{basename}'):
 
+    # Convert argument to function
+    todate_funcs = {'isdup': retrieve_isdup, 'd': retrieve_isdup,
+            'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
+            'taxon': def_is_any_taxon, 't': def_is_any_taxon,
+            'true': true, 'false': false}
+
+    todate = combine_boolean_funcs(todate, todate_funcs)
+    logger.debug('todate function: %s', todate.__name__)
+
+    def this_get_taxon(node):
+        return get_taxon(node, ensembl_version)
+    
+    def get_eventtype(node, subtree):
+        if node.is_leaf():
+            subtree[node.name]['isdup'] = False
+            return 'leaf'
+        #return 'dup' if isdup(node, subtree) else 'spe'
+        # Uses the side effect of `isdup_cache`
+        return 'dup' if isdup_cache(node, subtree) else 'spe'
+    
+    def is_outgroup(node):
+        return getattr(node, 'is_outgroup', 0)
+    
+    #def get_event_type(node, subtree):
+    #    return 'leaf' if node.is_leaf() else 'dup' if isdup(node, subtree) else 'spe'
     for fulltree in setup_fulltree(resultfile, phyltree, replace_nwk, replace_by, measures):
-
-        # Convert argument to function
-        todate_funcs = {'isdup': retrieve_isdup, 'd': retrieve_isdup,
-                'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
-                'taxon': def_is_any_taxon, 't': def_is_any_taxon,
-                'true': true, 'false': false}
-
-        todate = combine_boolean_funcs(todate, todate_funcs)
-        logger.debug('todate function: %s', todate.__name__)
-
-        def this_get_taxon(node):
-            return get_taxon(node, ensembl_version)
-        
-        def get_eventtype(node, subtree):
-            if node.is_leaf():
-                subtree[node.name]['isdup'] = False
-                return 'leaf'
-            #return 'dup' if isdup(node, subtree) else 'spe'
-            # Uses the side effect of `isdup_cache`
-            return 'dup' if isdup_cache(node, subtree) else 'spe'
-        
-        def is_outgroup(node):
-            return getattr(node, 'is_outgroup', 0)
-        
-        #def get_event_type(node, subtree):
-        #    return 'leaf' if node.is_leaf() else 'dup' if isdup(node, subtree) else 'spe'
 
         if BEAST_MEASURES.union(('beast:dist',)).intersection(measures):
             # Handle reassignments into splitted variables
@@ -1656,7 +1669,8 @@ def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_b
                                            keeproot=keeproot,
                                            node_info=[('taxon', this_get_taxon),
                                                       ('is_outgroup', is_outgroup)],
-                                   node_feature_setter=[('type', get_eventtype)])
+                                   node_feature_setter=[('type', get_eventtype)],
+                                   dataset_fmt=dataset_fmt)
             subtrees = None
         else: #if CODEML_MEASURES.intersection(measures):
             ages, subtrees = bound_average(fulltree, phyltree.ages, todate,
@@ -1669,17 +1683,24 @@ def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_b
                                        calib_selecter='taxon',
                                        node_info=[('taxon', this_get_taxon),
                                                   ('is_outgroup', is_outgroup)],
-                                       node_feature_setter=[('type', get_eventtype)])
+                                       node_feature_setter=[('type', get_eventtype)],
+                                       dataset_fmt=dataset_fmt)
 
         showtree(fulltree)
         if not keeproot:
             ingroup_nodes = [n for n in fulltree.children
                                 if int(getattr(n, 'is_outgroup', 0)) == 0]
-            treename = getattr(fulltree, 'treename', None)
+            basename = getattr(fulltree, 'basename', None)
+            dirname = getattr(fulltree, 'dirname', None)
+            ndataset = getattr(fulltree, 'ndataset', None)
             try:
                 fulltree, = ingroup_nodes
-                if treename:
-                    fulltree.add_feature('treename', treename)
+                if basename is not None:
+                    fulltree.add_feature('basename', basename)
+                if dirname is not None:
+                    fulltree.add_feature('dirname', dirname)
+                if ndataset is not None:
+                    fulltree.add_feature('ndataset', ndataset)
             except ValueError:
                 logger.warning("Ingroup node not found (%d candidates)",
                                 len(ingroup_nodes))
@@ -1692,7 +1713,7 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
          unweighted=False, original_leading_paths=False,
          correct_unequal_calibs='default', fix_conflict_ages=True, verbose=False,
          show=None, replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
-         saveas='ages', todate='isdup', keeproot=False):
+         saveas='ages', todate='isdup', keeproot=False, dataset_fmt='{basename}'):
     nb_results = len(resultfiles)
     
     loglevel = logging.DEBUG if verbose else logging.WARNING
@@ -1711,7 +1732,8 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
                   "     replace_nwk   %s\n"
                   "     replace_by    %s\n"
                   "     ignore_errors %s\n"
-                  "     keeproot      %s\n",
+                  "     keeproot      %s\n"
+                  "     dataset_fmt   %r\n",
                   outfile,
                   resultfiles[:5], '...' * (nb_results>5),
                   ensembl_version,
@@ -1725,7 +1747,8 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
                   replace_nwk,
                   replace_by,
                   ignore_errors,
-                  keeproot)
+                  keeproot,
+                  dataset_fmt)
 
     saveas_indices = {'ages': 0, 'fulltree': 1, 'subtrees': 2}
     saveas_i = saveas_indices[saveas]
@@ -1782,21 +1805,23 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_results, percentage, resultfile),
                   end=' ')
             try:
+                ndataset = 1
                 for result in process(resultfile, ensembl_version, phyltree,
                                  replace_nwk, replace_by, measures, todate,
                                  unweighted, original_leading_paths,
                                  correct_unequal_calibs, fix_conflict_ages,
-                                 keeproot=keeproot):
+                                 keeproot=keeproot, dataset_fmt=dataset_fmt):
                     if saveas=='fulltree':
                         set_subtrees_distances([result[1]], measures[0])
                     elif saveas=='subtrees':
                         set_subtrees_distances(result[2], measures[0])
 
                     save_result(result[saveas_i], out)
+                    ndataset += 1
             except BaseException as err:
                 print()
                 if not isinstance(err, KeyboardInterrupt) and ignore_errors:
-                    logger.error("Skip %r: %r", resultfile, err)
+                    logger.error("Skip %r #%d: %r", resultfile, ndataset, err)
                 else:
                     raise
     print()
@@ -1811,7 +1836,7 @@ def readfromfiles(filenames):  # ~~> CLItools
 
 
 if __name__=='__main__':
-    logging.basicConfig(format=logging.BASIC_FORMAT)
+    logging.basicConfig(format='%(levelname)s:%(funcName)-16s:%(message)s')
     parser = argparse.ArgumentParser(description=__doc__, 
                                 formatter_class=argparse.RawTextHelpFormatter)
     
@@ -1879,6 +1904,10 @@ Example to date all internal nodes except a calibrated speciation:
                     help='Which distance measure: dist (from the newick ' \
                          'tree) or dS,dN,t,S*dS,N*dN (from codeml), or ' \
                          'length,length_median (from beast)')
+    go.add_argument('-f', '--dataset-fmt', default='{basename}',
+                    help=('Format for the `subgenetree` column. Available '
+                          'keys: basename,dirname,ndataset (relative to '
+                          'resultfile). [%(default)s]'))
     go.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
                     const='fulltree', default='ages',
                     help='Do not compute the table, but save trees in one'\
