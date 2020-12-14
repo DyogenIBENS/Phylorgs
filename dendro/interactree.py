@@ -92,7 +92,7 @@ def display_onetree(tree, treename=None, rootnode=None, ladderize=False,
     if text:
         show_attr=['dist'] if show_dists else None
         print(tree.get_ascii(show_internal=show_internal, compact=compact,
-                             attibutes=show_attr))
+                             attributes=show_attr))
     else:
         mynodestyle = ete3.NodeStyle(size=nodesize)
 
