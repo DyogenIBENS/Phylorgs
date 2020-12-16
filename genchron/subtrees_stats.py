@@ -57,15 +57,28 @@ def get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version=ENSEMBL_VERSION
     return [SP2GENEID[ensembl_version][sp] for sp in phyltree.species[ancestor]]
 
 
+GLOB_TEMPLATE = '{rootdir}/{genetree}/{subtreesdir}/{ancestor}{genetree}*{filesuffix}'
+SUBTREE_TEMPLATE = '{ancestor}{genetree}*'
+# Where '*' is the string matched by the wildcard in orig_glob_template
+
+
 def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
-                            subtreesdir='subtreesCleanO2', exclude=None):
+                            subtreesdir='subtreesCleanO2',
+                            glob_template=GLOB_TEMPLATE, exclude=None):
+    #TODO: remove arguments filesuffix, rootdir, subtreesdir in favor of using
+    # only glob_template.
+    glob_template = glob_template.format(genetree='{0}',
+                                         ancestor=ancestor,
+                                         filesuffix=filesuffix,
+                                         rootdir=rootdir,
+                                         subtreesdir=subtreesdir)
+    subtree_template = SUBTREE_TEMPLATE.replace('*', '{subtreesuffix}')
     countlines = 0
     countfiles = 0
     for line in genetreelistfile:
         countlines += 1
         genetree = line.rstrip()
-        files_pattern = op.join(rootdir, genetree, subtreesdir,
-                                  ancestor + genetree + '*' + filesuffix)
+        files_pattern = glob_template.format(genetree)
         files_reg = re.compile(re.escape(files_pattern).replace('\\*', '([A-Za-z.]*)'))
         exclude_reg = exclude if exclude is None else re.compile(exclude)
 
@@ -77,7 +90,12 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
                     subtreesuffix = files_reg.search(subtreefile).group(1)
                 except AttributeError:
                     continue
-                subtree = ancestor + genetree + subtreesuffix
+                except IndexError:
+                    # no such group: there was no wildcard in the pattern
+                    subtreesuffix = ''
+                subtree = subtree_template.format(ancestor=ancestor,
+                                                  genetree=genetree,
+                                                  subtreesuffix=subtreesuffix)
                 logger.debug('next file: %s', subtreefile)
                 yield subtreefile, subtree, genetree
 
@@ -90,6 +108,7 @@ def get_children(tree, node):
 
 def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                  subtreesdir='subtreesCleanO2', filesuffix='_genes.fa',
+                 glob_template=GLOB_TEMPLATE,
                  ensembl_version=ENSEMBL_VERSION, ignore_outgroups=False,
                  ignore_error=True):
     """Gather characteristics of the **input alignments**, and output them as
@@ -120,7 +139,8 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                              ancestor,
                                                              filesuffix,
                                                              rootdir,
-                                                             subtreesdir):
+                                                             subtreesdir,
+                                                             glob_template):
         try:
             al = AlignIO.read(alfile, format='fasta')
             al = ungap(al)
@@ -450,7 +470,7 @@ def count_zero_combinations(tree, exclusive=False):
 
 
 def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
-                   subtreesdir='subtreesCleanO2',
+                   subtreesdir='subtreesCleanO2', glob_template=GLOB_TEMPLATE,
                    ensembl_version=ENSEMBL_VERSION,
                    ignore_outgroups=False, extended=False, ignore_error=True):
     """Determine the robustness of the tree, and its clock-likeliness.
@@ -476,6 +496,7 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               '.nwk',
                                                               rootdir,
                                                               subtreesdir,
+                                                              glob_template,
                                                               exclude=None):#'_codeml\.nwk$'):
         try:
             tree = ete3.Tree(subtreefile, format=1)
@@ -597,7 +618,7 @@ def get_tree_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 #
 
 def get_family_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
-                   subtreesdir='subtreesCleanO2',
+                   subtreesdir='subtreesCleanO2', glob_template=GLOB_TEMPLATE,
                    ensembl_version=ENSEMBL_VERSION,
                    ignore_outgroups=True, ignore_error=True):
     """Gene family sizes per species as input for CAFE."""
@@ -616,6 +637,7 @@ def get_family_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               '.nwk',
                                                               rootdir,
                                                               subtreesdir,
+                                                              glob_template,
                                                               exclude='_codeml\.nwk$'):
         logger.debug('Processing %s: %s', genetree, subtree)
         try:
@@ -683,6 +705,7 @@ def get_family_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
 def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                      subtreesdir='subtreesCleanO2', filesuffix='_m1w04.mlc',
+                     glob_template=GLOB_TEMPLATE,
                      ensembl_version=ENSEMBL_VERSION,
                      ignore_outgroups=False, ignore_error=True):
     """Gather characteristics of the **codeml results**, and output them as
@@ -722,7 +745,8 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
                                                               ancestor,
                                                               filesuffix,
                                                               rootdir,
-                                                              subtreesdir):
+                                                              subtreesdir,
+                                                              glob_template):
         try:
             mlc = parse_mlc(mlcfile)
 
@@ -840,6 +864,7 @@ def get_codeml_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
 def get_cleaning_stats(genetreelistfile, ancestor, 
                        rootdir='.', subtreesdir='subtreesCleanO2',
+                       glob_template=GLOB_TEMPLATE,
                        filesuffix='_genes.fa', ignore_error=True, **kwargs):
     """Data removed from alignment with Gblocks/Hmmcleaner"""
     if kwargs:
@@ -864,7 +889,8 @@ def get_cleaning_stats(genetreelistfile, ancestor,
                                                              ancestor,
                                                              filesuffix,
                                                              rootdir,
-                                                             subtreesdir):
+                                                             subtreesdir,
+                                                             glob_template):
         try:
             # parse Gblocks output
             gb_logfile = alfile + '-gb.htm'
@@ -951,6 +977,7 @@ def read_beastsummary(filename, convert=None):
 
 def get_beast_stats(genetreelistfile, ancestor, 
                     rootdir='.', subtreesdir='subtreesCleanO2',
+                    glob_template=GLOB_TEMPLATE,
                     filesuffix='_beastS-summary.txt', ignore_error=True, **kwargs):
     """Data removed from alignment with Gblocks/Hmmcleaner"""
     if kwargs:
@@ -974,7 +1001,8 @@ def get_beast_stats(genetreelistfile, ancestor,
                                                              ancestor,
                                                              filesuffix,
                                                              rootdir,
-                                                             subtreesdir):
+                                                             subtreesdir,
+                                                             glob_template):
         try:
             #if not op.exists(beastsummary):
             #    output = [None]*len(stats_header)
@@ -1016,6 +1044,8 @@ if __name__ == '__main__':
     parent_parser.add_argument('phyltreefile')
     parent_parser.add_argument('-r', '--rootdir', default='.', help='[%(default)s]')
     parent_parser.add_argument('-s', '--subtreesdir', default='subtreesCleanO2',
+                               help="[%(default)s]")
+    parent_parser.add_argument('-g', '--glob-template', default=GLOB_TEMPLATE,
                                help="[%(default)s]")
     parent_parser.add_argument('-e', '--ensembl-version', type=int,
                                default=ENSEMBL_VERSION, help="[%(default)s]")
