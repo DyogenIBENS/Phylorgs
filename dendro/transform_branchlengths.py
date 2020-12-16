@@ -62,7 +62,7 @@ def main():
     #common_parser = ap.ArgumentParser(add_help=False)
     parser.add_argument('treefile')
     parser.add_argument('-p', '--parser', choices=list(set(k.lower() for k in parserchoice.keys())),
-                        default='ete3',
+                        default='ete3_f1',
                         help='[%(default)s]')
     
     subp = parser.add_subparsers(dest='transform')
