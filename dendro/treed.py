@@ -26,6 +26,7 @@ VAR = {'d': 'node.dist',
 
 ACTIONS = {'w': 'print(node.write(format=outfmt, format_root_node=True))',
            'o': 'node.delete(prevent_nondicotomic=False, preserve_branch_length=True)',
+           'f': 'fuse(node)',
            'p': 'print(node.name)',
            'a': 'node.add_child',
            'L': 'node.ladderize()',
@@ -45,6 +46,13 @@ ACTION_PATTERN = r'\b(' + '|'.join(ACTIONS.keys()) + r')\b'
 
 #print(VAR_PATTERN)
 #print(ACTION_PATTERN)
+
+def fuse(node):
+    """fusion this node with its parent (its branch length is added to its children)."""
+    for child in node.children:
+        child.dist += node.dist
+    node.delete(prevent_nondicotomic=False, preserve_branch_length=False)
+
 
 def main(treefile, test, action, format, outfmt, strategy, is_leaf_fn,
          output=True):
@@ -84,7 +92,7 @@ if __name__ == '__main__':
                         help='[%(default)s]')
     parser.add_argument('-l', '--is-leaf-fn')
     parser.add_argument('-n', dest='output', action='store_false',
-                        help='Output the processed tree')
+                        help='Do not output the processed tree (dry-run)')
     # TODO: arguments begin and end.
     
     args = parser.parse_args()
