@@ -125,7 +125,7 @@ def fuse_single_child_nodes_ete3(tree, copy=True):
     return tree
 
 
-def collapse_clades(tree, get_items, set_items, clades, make_new_clade=None):
+def collapse_clades(tree, get_items, set_items, root, clades, make_new_clade=None):
     """Note: this modifies tree **inplace**. Make a copy accordingly.
     
     make_new_clade: function to create the new node. Takes (clade, cladesize) as argument.
@@ -144,7 +144,7 @@ def collapse_clades(tree, get_items, set_items, clades, make_new_clade=None):
                 return new
     leaf_numbers = [0]*len(clades)
     # Iterate from root to leaves
-    iter_tree = list(dfw_pairs_generalized(tree, get_items, queue=[((None,0), (tree.root, 0))]))
+    iter_tree = list(dfw_pairs_generalized(tree, get_items, queue=[((None,0), (root, 0))]))
     for _, (clade,_) in iter_tree:
     #iter_tree = list(dfw_descendants_generalized(tree, get_items, queue=[(tree.root, 0)], copy=True))
     #for _, items in iter_tree:
