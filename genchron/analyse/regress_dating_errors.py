@@ -330,16 +330,22 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
 
 
 
-def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
+def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't'], compute_extra_ns=None):
     """Load ages dataframe, join with parent information, and compute the
-    'robust' info"""
-    
+    'robust' info.
+
+    `compute_extra_ns`: a function that takes the ages.groupby('subgenetree')
+                object and output a dataframe to be joined with `ns` (dataset
+                specific statistics, one row per subgenetree).
+                if it produce a column named "treelink", this will be used to join `ts`.
+                (otherwise it joins on its index, i.e. the subgenetree values).
+    """
     
     beast_renames = {'height': 'age_beastS',
                      'height_median': 'age_beastSmedian',
                      'length': 'branch_beastS',
                      'length_median': 'branch_beastSmedian'}
-    
+
     ages = pd.read_csv(ages_file, sep='\t', index_col=0)\
             .rename(columns=lambda n: n.replace('.', '_'))\
             .rename(columns=beast_renames)\
@@ -380,6 +386,14 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
                 ages_int.shape,
                 ages_int.index.has_duplicates)
     n_nodes_int = (ages.type != 'leaf').sum()
+
+    #TODO:
+    # Really important here:
+    # 1. index (=node.name) should be UNIQUE.
+    # 2. the "parent" column should intersect with the index!
+    #
+    # Therefore the design: a unique index + uniq parent
+    # based on (subgenetree, name) and (subgenetree, parent).
 
     # Fetch parent node info  ## FIXME: handle missing column 'is_outgroup'
     ages_p = pd.merge(ages.reset_index(),
@@ -466,10 +480,13 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't']):
     #ages_robust = ages_treestats[ages_treestats.really_robust & \
     #                             (ages_treestats.aberrant_dists == 0)]\
     #                        .drop(['really_robust', 'aberrant_dists'], axis=1)
-    return add_robust_info(ages_p, ts, measures)
+    return add_robust_info(ages_p, ts, measures, compute_extra_ns)
 
+def orig_extra_ns(sgg):
+    return sgg.subgenetree.first().rename('ensembl_version', inplace=False)\
+             .str.extract(r'^[A-Z][a-zA-Z_]+ENSGT00(\d\d)0.*').astype(int)
 
-def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
+def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't'], compute_extra_ns=None):
     """
     Compute Number of duplications/speciation per tree,
     and additional tree specific statistics.
@@ -486,7 +503,7 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
 
     sgg = subgenetree_groups = ages_p.groupby('subgenetree', sort=False)
 
-    logger.info('Aggregating `ns` ("new stats" specific to this dataset)...')
+    logger.info('Aggregating `ns` ("new stats" specific to this dataset. ages_p.shape = %s)...', ages_p.shape)
     # This is a slow operation. Needs optimization.
     
     # tree statistics making use of each node.
@@ -494,6 +511,7 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
                     sgg.type.agg(lambda v: sum(v == "spe"))),
                    axis=1, keys=['Ndup', 'Nspe'])
 
+    logger.debug('ns original shape = %s', ns.shape)
     #print(ns.Ndup.describe())
     #print(ns.Nspe.describe())
 
@@ -513,23 +531,43 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't']):
     sgg_before = ages_p[ages_p.calibrated==0].groupby('subgenetree', sort=False)
     sgg_after = ages_p[ages_p.calibrated_parent==0].groupby('subgenetree', sort=False)
 
-    ns = ns.join(sgg_before[branch_measures].agg(freq_of_null))\
+    ns = ns.join(sgg_before[branch_measures].agg(freq_of_null), sort=False)\
            .rename(columns={'branch_%s' %m: 'null_%s_before' %m
                             for m in measures})\
-           .join(sgg_after[branch_measures].agg(freq_of_null))\
+           .join(sgg_after[branch_measures].agg(freq_of_null), sort=False)\
            .rename(columns={'branch_%s' %m: 'null_%s_after' %m
-                            for m in measures})\
-           .join(ns.index.to_series()\
-                 .str.extract(r'^[A-Z][a-zA-Z_]+ENSGT00(\d\d)0.*').astype(int)\
-                 .set_axis(['ensembl_version'], axis=1, inplace=False))
+                            for m in measures})
            #.join(sgg_after[['branch_dN', 'branch_dS']]\
            #      .apply(lambda r: (r==0).all(axis=1))
+    logger.debug('ns joined shape = %s', ns.shape)
+
+    if compute_extra_ns is not None:
+        nscolumns = ns.columns.tolist()
+        ns = ns.join(compute_extra_ns(sgg), sort=False)
+        logger.debug('ns.columns = %s', ns.columns.tolist())
+        if set(nscolumns) == set(ns.columns):
+            logger.error('No new column added by `compute_extra_ns`. Head is:\n%s', compute_extra_ns(sgg).head())
 
     # merge tree stats to select robust trees
+    merged_ns = ['Ndup', 'Nspe']
+    linktree = None
+    if 'linktree' in ns:
+        linktree = 'linktree'
+        merged_ns.append(linktree)
+    
+    nsts = ns[merged_ns].join(ts[['really_robust', 'aberrant_dists',
+                                  'rebuilt_topo']],
+                              on=linktree, sort=False)  # Is this useful?
+    if np.all(nsts.really_robust.isna()):
+        msg = 'Merging ns with ts failed: zero common tree?'
+        linked_ts = ts[linktree] if linktree else ts.index.to_series()
+        pasted_heads = '\n'.join(line1 + '\t' + line2 for line1,line2 in
+                                 zip(str(ns.index.to_series().head()).split('\n'),
+                                     str(linked_ts.head()).split('\n')))
+        logger.error('%s Check:\nns.index\tts[%s]\n%s', msg, linktree, pasted_heads)
+        raise ValueError(msg)
     ages_treestats = pd.merge(ages_p.drop('_merge', axis=1),
-                              ns[['Ndup', 'Nspe']].join(
-                                  ts[['really_robust', 'aberrant_dists',
-                                      'rebuilt_topo']]),  # Is this useful?
+                              nsts,
                               how='left',
                               left_on='subgenetree',
                               right_index=True,
@@ -1492,9 +1530,9 @@ class age_analysis_data(object):
 
 def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
                        measures=['dS', 'dist', 'dN', 't'],
-                       control_names=['timetree'], out=None):  # 'dosreis'
+                       control_names=['timetree'], compute_extra_ns=None, out=None):
     #, aS, cs, clS=None
-    ages, ns = load_prepare_ages(ages_file, ts, measures)
+    ages, ns = load_prepare_ages(ages_file, ts, measures, compute_extra_ns)
     ages_controled_withnonrobust, control_ages, control_brlen =\
         add_control_dates_lengths(ages, phyltree, control_ages_CI, measures,
                                   control_names=control_names)
