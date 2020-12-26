@@ -58,6 +58,7 @@ def get_ensembl_ids_from_anc(ancestor, phyltree, ensembl_version=ENSEMBL_VERSION
 
 
 GLOB_TEMPLATE = '{rootdir}/{genetree}/{subtreesdir}/{ancestor}{genetree}*{filesuffix}'
+SUFFIX_PATTERN = '([A-Za-z.]*)'
 SUBTREE_TEMPLATE = '{ancestor}{genetree}*'
 # Where '*' is the string matched by the wildcard in orig_glob_template
 
@@ -79,7 +80,7 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
         countlines += 1
         genetree = line.rstrip()
         files_pattern = glob_template.format(genetree)
-        files_reg = re.compile(re.escape(files_pattern).replace('\\*', '([A-Za-z.]*)'))
+        files_reg = re.compile(re.escape(files_pattern).replace('\\*', SUFFIX_PATTERN))
         exclude_reg = exclude if exclude is None else re.compile(exclude)
 
         logger.info("pattern: '%s' '%s'", files_pattern, files_reg.pattern)
@@ -89,6 +90,7 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
                 try:
                     subtreesuffix = files_reg.search(subtreefile).group(1)
                 except AttributeError:
+                    logger.debug('NO MATCH for subtreesuffix in %r', subtreefile)
                     continue
                 except IndexError:
                     # no such group: there was no wildcard in the pattern

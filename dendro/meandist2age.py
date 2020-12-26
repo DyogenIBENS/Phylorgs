@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import print_function
+
 """1. Check that the tree is ultrametric (distances rounded off at 2 decimals).
 2. Then average the distance to the root to annotate the age of each node."""
+
 
 import argparse as ap
 import ete3
@@ -13,9 +16,11 @@ from dendro.any import ete3 as ete3_methods
 get_items = ete3_methods.get_items
 
 
-def main(inputtree, format=1, to_table=False):
+def main(inputtree, format=1, to_table=False, check_ultrametricity=True):
     tree = ete3.Tree(inputtree, format=format)
-    assert is_ultrametric(tree)
+    if check_ultrametricity and not is_ultrametric(tree):
+        raise ValueError("NOT ultrametric (different root-leaf lengths).")
+
     
     for node in tree.traverse('postorder'):
         if not getattr(node, 'age', None):
@@ -34,6 +39,7 @@ def main(inputtree, format=1, to_table=False):
         print(tree.write(features=['age'], format=format,
               format_root_node=True))
 
+
 if __name__ == '__main__':
     parser = ap.ArgumentParser(description=__doc__)
     parser.add_argument('inputtree')
@@ -41,6 +47,9 @@ if __name__ == '__main__':
                         help="input and output newick format")
     parser.add_argument('-t', '--to-table', action='store_true',
                         help='Output ages in tabulated list')
+    parser.add_argument('-i', '--ignore-ultrametricity', action='store_false',
+                        dest='check_ultrametricity',
+                        help='Do not fail if the tree is not ultrametric')
     
     args = parser.parse_args()
     main(**vars(args))

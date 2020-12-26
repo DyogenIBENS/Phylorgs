@@ -283,13 +283,20 @@ def inv_conf_int_gamma(shape, scale, loc=0, conf=0.95):
 
 
 def dist_from_conf_int_gamma(ci, shape, scale, loc, conf=0.95):
-    """With loc and/or scale being an array"""
+    """
+    Squared euclidian distance between wanted Confidence Intervals and
+    theoretical confidence intervals of Gamma(shape, scale).
+
+    params: loc and/or scale can be arrays
+    """
     inf, sup = stats.gamma.interval(conf, shape, loc, scale)
     return ((ci - np.stack((inf, sup)).T)**2).sum(axis=1)
 
 
 def gamma_params_from_mean_and_ci(mean, ci, conf=0.95, shape_bounds=None,
                                   loc_bounds=None, nshapes=200, nlocs=None):
+    """Compute a grid of distance to the wanted confidence intervals (ci)
+    and Gamma(shape,loc) parameter that fit the given mean,ci."""
     # function to minimize: sum of squared differences from the requested interval boundaries
     ci = np.array(ci)
     func = partial(dist_from_conf_int_gamma, ci, conf=conf)
@@ -333,6 +340,7 @@ def show_obj(objective, shape_values, loc_values):
 
 
 def superimpose_gamma_params(mean, ci, shape, loc, conf=0.95, scale=None):
+    """Plot the Gamma(shape,mean,loc) density, and coordinates of mean, ci."""
     if scale is None:
         scale = (mean-loc)/shape
     w = ci[1] - ci[0]
