@@ -9,12 +9,14 @@ phylogeny, based on a given alignment.
 Quick and crude parsimonious estimation.
 """
 
+import argparse as ap
 from functools import reduce
 import numpy as np
 from numpy import array
 from Bio import AlignIO
 from dendro.bates import rev_dfw_descendants, dfw_descendants_generalized
 from dendro.parsers import parserchoice
+from dendro.converters import converterchoice
 from dendro.any import methodchoice
 
 import logging
@@ -270,12 +272,43 @@ def leafwards_branch_events(tree, get_children, get_label, root, gap_coords, sta
     return newstates, rootcoords, branch_inser, branch_del
 
 
-def branch_len_distribs(branch_events):
+def iter_branch_len_distribs(branch_events):
     """branch_events are branch_inser/branch_del as outputted by leafwards_branch_events"""
-    distribs = {}
+    #TODO: solve the redundant overlaps!!
     for branch, events in branch_events.items():
-        distribs[branch] = np.array([e-s+1 for s,e in events])
-    return distribs
+        yield branch, np.array([e-s+1 for s,e in events])
 
 
+def main():
+    parser = ap.ArgumentParser(description=__doc__)
+    parser.add_argument('alfile')
+    parser.add_argument('treefile')
+    parser.add_argument('-p', '--parser', default='ete3_f1')
+    parser.add_argument('-c', '--codon', action='store_true')
 
+    args = parser.parse_args()
+
+    al = AlignIO.read(args.alfile, format='fasta')
+    
+    parse = parserchoice[args.parser]
+    convert = converterchoice[args.parser]['ete3']
+    method = methodchoice[args.parser]
+    get_children = method.get_children
+    get_label = method.get_label
+    get_root = method.get_root
+
+    for tree_obj in parse(args.treefile):
+        tree = convert(tree_obj)
+
+        gap_coords, states = rootwards_gap_states(al, tree, get_children, get_label, get_root(tree), codon=args.codon)
+        newstates, rootcoords, branch_inser, branch_del = leafwards_branch_events(tree, get_children, get_label, get_root(tree), gap_coords, states)
+        print('# Insertions')
+        for branch, distrib in iter_branch_len_distribs(branch_inser):
+            print('%s - %s: %s' % (branch[0], branch[1], distrib))
+        print('# Deletions')
+        for branch, distrib in iter_branch_len_distribs(branch_del):
+            print('%s - %s: %s' % (branch[0], branch[1], distrib))
+
+
+if __name__ == '__main__':
+    main()

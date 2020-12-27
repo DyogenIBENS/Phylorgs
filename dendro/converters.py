@@ -132,3 +132,6 @@ for from_, todict in list(converterchoice.items()):
     for to_, func in list(todict.items()):
         todict[to_.lower()] = func
     converterchoice[from_.lower()] = todict
+converterchoice['phyltree']['ete3_f1'] = converterchoice['prottree']['ete3']
+converterchoice['prottree']['ete3_f1'] = converterchoice['prottree']['ete3']
+converterchoice['ete3_f1'] = converterchoice['ete3']

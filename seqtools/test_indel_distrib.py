@@ -210,13 +210,13 @@ class Test_anc_gaps:
         assert branch_del[('x', 'a')] == [(1,1)]
         assert branch_inser[('x', 'a')] == []
 
-        del_lengths = branch_len_distribs(branch_del)
+        del_lengths = dict(branch_len_distribs(branch_del))
         assert del_lengths[('x', 'a')].tolist() == [1]
         assert del_lengths[('x', 'b')].shape == (0,)
         assert del_lengths[('r', 'x')].shape == (0,)
         assert del_lengths[('r', 'c')].shape == (0,)
         
-        inser_lengths = branch_len_distribs(branch_inser)
+        inser_lengths = dict(branch_len_distribs(branch_inser))
         for br,distrib in inser_lengths.items():
             assert distrib.shape == (0,), "distrib %s : %s" % (br, distrib)
 
