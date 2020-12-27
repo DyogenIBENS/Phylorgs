@@ -128,29 +128,47 @@ def combine_gaps(gaps1, gaps2):
                 #while ends_under2:
                 #    newgaps.append((ends_under2.pop(), e2))
             newgaps.append((s1, e1))
-            newgaps.append((s2, e2))
+            if s1 != s2:
+                newgaps.append((s2, e2))
             i += 1
             j += 1
         logger.debug('  newgaps = %s', newgaps)
 
     logger.debug('# Final i,j = %d,%d ; gaps1=%s, gaps2=%s ; ends_in1=%s, ends_in2=%s', i,j, gaps1[i:], gaps2[j:], ends_under1, ends_under2)
     newgaps.extend(gaps1[i:] + gaps2[j:])
-    return newgaps #, index1, index2 #(instead of the reindex function
+    newgaps.sort()  # Needed for recursive calls! #TODO: fill it in a sorted manner.
+    return newgaps #, index1, index2 #(instead of the reindex function)
 
 
 def reindex_states(states, coords, new_coords):
-    new_coords_idx = {c:j for j,c in enumerate(new_coords)}
+    """Apply state values in the new order.
+    If new_coords contains *included* gaps that are overlapped by some gaps,
+    their state is set to the overlapping gap state."""
     newstates = np.array([[1,0]]*len(new_coords))  # default state is not a gap
-    for j in range(states.shape[0]):
-        new_j = new_coords_idx[coords[j]]
-        newstates[:,new_j] = states[:,j]
+    coords_idx = {c:i for i,c in enumerate(coords)}
+    for j,g in enumerate(new_coords):
+        i = None
+        try:
+            i = coords_idx[g]
+        except KeyError:
+            for i, c in enumerate(coords):
+                if (c[0] <= g[0] <= g[1] <= c[1]):
+                    break
+            else:
+                continue
+        newstates[j,:] = states[i,:]
     return newstates
 
 
 
 def rootwards_gap_states(align, tree, get_children, get_label, root, codon=False):
+    """Walk tree rootwards and compute each intermediate node state.
+    
+    State is a binary representation: 10='nogap' 01='gap' 11='unknown'
+    """
     gap_coords = map_gaps(align, codon)  # gap positions. used to index states.
 
+    #FIXME: use 2 for [1,0], 1 for [0,1] and 3 for [1,1]. any() becomes bitwise_inter>0.
     states = {sp: np.array([[0,1]]*len(gaps)) for sp, gaps in gap_coords.items()}
     #FIXME: what if new gaps occur (as fusion, extension, etc)
 
@@ -173,14 +191,16 @@ def rootwards_gap_states(align, tree, get_children, get_label, root, codon=False
         state_union = reduce(np.logical_or, ch_states)
         state_inter = reduce(np.logical_and, ch_states)
 
-        # Encodes as 0(no gap)/1(gap) in a scalar value for each coordinate
-        # NOTE: should be '2' when undetermined
+        assert state_union.shape == (len(combined_gaps), 2)
+
         change = ~(state_inter.any(axis=1))
+        assert change.shape == (len(combined_gaps),), 'change.shape=%s' % (change.shape,)
         score += change.sum()
 
         states[nodename] = np.where(change[:,None], state_union, state_inter)
         gap_coords[nodename] = combined_gaps
             
+        assert states[nodename].shape == (len(combined_gaps), 2)
         #common_gaps = set.intersection(*(set(gaps[ch]) for ch in children))
         #specific_gaps = all_gaps - common_gaps
         ##intersecting_gaps
@@ -212,39 +232,49 @@ def leafwards_branch_events(tree, get_children, get_label, root, gap_coords, sta
     branch_inser = {}
     branch_del = {}
     #branch_len
-    score = 0
-    for node, childnodes in dfw_descendants(tree, get_children, queue=[root]):
+    for node, childnodes in dfw_descendants_generalized(tree, get_children, queue=[root],
+            include_leaves=True):
         nodename = get_label(tree, node)
-        nodestates = states[nodename]
+        if not childnodes:
+            # This is a leaf. Restore the observed states
+            newstates[nodename] = reindex_states(states[nodename], gap_coords[nodename], rootcoords)
+
+        nodestate = newstates[nodename]
+        assert nodestate.shape == (len(rootcoords), 2)
 
         for chn in childnodes:
             ch = get_label(tree, chn)
             branch_inser[(nodename, ch)] = []
+            branch_del[(nodename, ch)] = []
 
-            chstates = reindex_states(states[ch], gap_coords[ch], rootcoords)
-            branch_inter = np.logical_and(nodestates, chstates)
-            branch_union = np.logical_or(nodestates, chstates)
-            change = ~(branch_inter.any(axis=0))
-            score += change.sum()
+            ch_state = reindex_states(states[ch], gap_coords[ch], rootcoords)
+            assert ch_state.shape == nodestate.shape
+            branch_inter = np.logical_and(nodestate, ch_state)
+            branch_union = np.logical_or(nodestate, ch_state)
+            assert branch_inter.shape == nodestate.shape
+            change = ~(branch_inter.any(axis=1))
+            #if nodename=='x' and ch=='a':
+            #    logger.debug('nodestate=%s ch_state=%s change = %s', nodestate.tolist(), ch_state.tolist(), change.tolist())
+            assert change.shape == (len(rootcoords),), 'change.shape=%s' % (change.shape,)
 
+            newstates[ch] = np.where(change[:,None], branch_union, branch_inter)
+            #TODO: at a leaf, states are constrained
             for i, gap in enumerate(rootcoords):
-                if not branch_inter[i]:
-                    if nodestates[1,i]: # it was a gap
+                if change[i]:
+                    if nodestate[i,1]: # it was a gap
                         branch_inser[(nodename, ch)].append(gap)
                     else:
                         branch_del[(nodename, ch)].append(gap)
 
-            newstates[ch] = np.where(change[:,None], branch_union, branch_inter)
-            #TODO: at a leaf, states are constrained
 
-    return newstates, rootcoords, branch_inser, branch_del, score
+    return newstates, rootcoords, branch_inser, branch_del
 
 
 def branch_len_distribs(branch_events):
     """branch_events are branch_inser/branch_del as outputted by leafwards_branch_events"""
     distribs = {}
-    for (nodename, ch), events in branch_events.items():
-        distribs[(nodename,ch)] = np.array([e-s+1 for s,e in events])
+    for branch, events in branch_events.items():
+        distribs[branch] = np.array([e-s+1 for s,e in events])
     return distribs
 
 
