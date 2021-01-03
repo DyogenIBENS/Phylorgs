@@ -7,6 +7,7 @@ from seqtools.indel_distrib import *
 logger.setLevel(logging.DEBUG)
 import pytest
 from collections import Counter
+from io import StringIO
 
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -116,7 +117,7 @@ class Test_anc_gaps:
         assert ( states['x'] == np.array([[1,1]]) ).all()
         assert ( states['r'] == np.array([[1,0]]) ).all()
 
-        newstates, rootcoords, branch_inser, branch_del = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
+        newstates, rootcoords, branch_inser, branch_del, branch_evts = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
 
         assert rootcoords == [(1,1)]
         assert (newstates['x'] == np.array([[1,0]])).all()
@@ -135,7 +136,7 @@ class Test_anc_gaps:
         assert gap_coords['x'] == [(1,1)]
         assert ( states['x'] == np.array([[0,1]]) ).all()
 
-        newstates, rootcoords, branch_inser, branch_del = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
+        newstates, rootcoords, branch_inser, branch_del, branch_evts = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
 
         assert rootcoords == [(1,1)]
         assert (newstates['x'] == np.array([[0,1]])).all()
@@ -158,7 +159,7 @@ class Test_anc_gaps:
         assert (states['x'] == np.array([[0,1]])).all()
         assert (states['y'] == np.array([[1,1]])).all()
 
-        newstates, rootcoords, branch_inser, branch_del = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
+        newstates, rootcoords, branch_inser, branch_del, branch_evts = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
 
         assert rootcoords == [(1,1)]
         assert (newstates['x'] == np.array([[0,1]])).all()
@@ -178,7 +179,7 @@ class Test_anc_gaps:
         assert ( states['x'] == np.array([[0,1], [1,1], [1,1]]) ).all()
         assert ( states['r'] == np.array([[0,1], [1,0], [1,0]]) ).all() # because it intersected states['x'] with states['c']
 
-        newstates, rootcoords, branch_inser, branch_del = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
+        newstates, rootcoords, branch_inser, branch_del, branch_evts = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
 
         assert rootcoords == [(1,1), (1,2), (2,2)]
         assert (newstates['x'] == np.array([[0,1], [1,0], [1,0]])).all()
@@ -199,7 +200,7 @@ class Test_anc_gaps:
         tree = ete3.Tree('((a,b)x,c)r;', format=1)
 
         gap_coords, states = rootwards_gap_states(al, tree, get_children, get_label, root=tree, codon=True)
-        newstates, rootcoords, branch_inser, branch_del = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
+        newstates, rootcoords, branch_inser, branch_del, branch_evts = leafwards_branch_events(tree, get_children, get_label, tree, gap_coords, states)
 
         # As in test_derived1
         assert (newstates['a'] == np.array([[0,1]])).all()

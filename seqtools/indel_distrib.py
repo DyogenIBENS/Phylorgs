@@ -233,6 +233,7 @@ def leafwards_branch_events(tree, get_children, get_label, root, gap_coords, sta
 
     branch_inser = {}
     branch_del = {}
+    branch_evts = []
     #branch_len
     for node, childnodes in dfw_descendants_generalized(tree, get_children, queue=[root],
             include_leaves=True):
@@ -261,15 +262,18 @@ def leafwards_branch_events(tree, get_children, get_label, root, gap_coords, sta
 
             newstates[ch] = np.where(change[:,None], branch_union, branch_inter)
             #TODO: at a leaf, states are constrained
+            evts = ['.']*len(rootcoords)
             for i, gap in enumerate(rootcoords):
                 if change[i]:
                     if nodestate[i,1]: # it was a gap
                         branch_inser[(nodename, ch)].append(gap)
+                        evts[i] = '+%d' % (gap[1] - gap[0] + 1)
                     else:
                         branch_del[(nodename, ch)].append(gap)
+                        evts[i] = '-%d' % (gap[1] - gap[0] + 1)
+            branch_evts.append(((nodename, ch), evts))
 
-
-    return newstates, rootcoords, branch_inser, branch_del
+    return newstates, rootcoords, branch_inser, branch_del, branch_evts
 
 
 def iter_branch_len_distribs(branch_events):
@@ -279,12 +283,25 @@ def iter_branch_len_distribs(branch_events):
         yield branch, np.array([e-s+1 for s,e in events])
 
 
+def format_state(state, coords):
+    # Get the minimum and maximum coords, assuming they are sorted
+    cmin = coords[0][0]
+    cmax = max(s2 for s1,s2 in coords)
+    seq = ['X']*(cmax+1)
+    for i, (s1,s2) in enumerate(coords):
+        if state[i,0] == 0 and state[i,1] == 1:
+            for k in range(s1, s2+1):
+                seq[k] = '-'
+    return ''.join(seq)
+
+
 def main():
     parser = ap.ArgumentParser(description=__doc__)
     parser.add_argument('alfile')
     parser.add_argument('treefile')
-    parser.add_argument('-p', '--parser', default='ete3_f1')
+    parser.add_argument('-p', '--parser', default='ete3_f1', help='[%(default)s]')
     parser.add_argument('-c', '--codon', action='store_true')
+    parser.add_argument('-s', '--states', action='store_true')
 
     args = parser.parse_args()
 
@@ -301,13 +318,21 @@ def main():
         tree = convert(tree_obj)
 
         gap_coords, states = rootwards_gap_states(al, tree, get_children, get_label, get_root(tree), codon=args.codon)
-        newstates, rootcoords, branch_inser, branch_del = leafwards_branch_events(tree, get_children, get_label, get_root(tree), gap_coords, states)
-        print('# Insertions')
-        for branch, distrib in iter_branch_len_distribs(branch_inser):
-            print('%s - %s: %s' % (branch[0], branch[1], distrib))
-        print('# Deletions')
-        for branch, distrib in iter_branch_len_distribs(branch_del):
-            print('%s - %s: %s' % (branch[0], branch[1], distrib))
+        newstates, rootcoords, branch_inser, branch_del, branch_evts = leafwards_branch_events(tree, get_children, get_label, get_root(tree), gap_coords, states)
+        if args.states:
+            for node, _ in rev_dfw_descendants(tree, get_children, queue=[get_root(tree)]):
+                nodename = get_label(tree, node)
+                print('>%s\n%s' % (nodename, format_state(newstates[nodename], rootcoords)))
+        else:
+            print('Coords\t' + '\t'.join('%2d,%2d' % c for c in rootcoords))
+            for branch, evt in branch_evts:
+                print('%7s-%7s\t%s' %(branch[0], branch[1], '\t'.join(evt)))
+            #print('# Insertions')
+            #for branch, distrib in iter_branch_len_distribs(branch_inser):
+            #    print('%s - %s: %s' % (branch[0], branch[1], distrib))
+            #print('# Deletions')
+            #for branch, distrib in iter_branch_len_distribs(branch_del):
+            #    print('%s - %s: %s' % (branch[0], branch[1], distrib))
 
 
 if __name__ == '__main__':
