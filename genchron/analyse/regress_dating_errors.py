@@ -1306,6 +1306,8 @@ def compute_branchrate_std(ages_controled, dist_measures,
 
     if weighted:
         #NOTE: The applied function omits NaN values in weights, but propagates NaNs in rates.
+        #FIXME: with Pandas v1, fails if measures=['dS', 'dN', 't', 'dist'] (more than one measure).
+        #       -> TypeError: Series.name must be hashable type
         cs_stds = rsgg[[branchtime] + dist_measures]\
                         .apply(lambda g: pd.Series(np.sqrt(
                                                     npraw_group_average_w0(g.values)),

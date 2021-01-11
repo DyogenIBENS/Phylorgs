@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-_epilog = ("Note: if input format is \"evolver\" and output format requires "
+_epilog = ("Note: if input format is \"evolver\"/\"multifasta\" and output format requires "
 "one file per alignment (e.g."
 "regular fasta or phylip), the outfile argument should include a formatter string:\n\n"
 "Example: ./seq_translate.py -f evolver mc.paml output_prot_%02d.phy")
@@ -14,7 +14,7 @@ from Bio import SeqIO
 from Bio.Alphabet import IUPAC
 
 try:
-    from seqtools.seqconv import split_evolver
+    from seqtools.seqconv import split_multidata, split_evolver
 except ImportError:
     print('seqtools.seqconv.split_evolver not available for PAML input format.', file=sys.stderr)
 
@@ -39,13 +39,20 @@ def main():
     parser.add_argument('-if', '--input-format', default="fasta", 
                         help=('Formats for Biopython (fasta, phylip, phylip-'
                         'sequential, phylip-relaxed, etc.) or "evolver" for '
-                        'the output of PAML evolver. [%(default)s]'))
+                        'the output of PAML evolver, and "multifasta" for '
+                        'concatenated fastas [%(default)s]'))
     parser.add_argument('-of', '--output-format', default="fasta",
                         help='[%(default)s]')
 
     args = parser.parse_args()
-    if args.input_format == 'evolver':
-        # This is just a concatenated Phylip, with extra blank lines.
+    if args.input_format == 'evolver' or args.input_format.startswith('multifa'):
+        # This is just a concatenated Phylip/fasta, with extra blank lines.
+        if args.input_format == 'evolver':
+            iterdata = split_evolver
+            datumformat = 'phylip-sequential'
+        else:
+            iterdata = split_multidata
+            datumformat = 'fasta'
         try:
             if args.outfile == sys.stdout:
                 out = sys.stdout
@@ -60,13 +67,13 @@ def main():
                 f = sys.stdin
             else:
                 f = open(args.inputfile)
-            for aldata in split_evolver(f):
+            for n_al, aldata in enumerate(iterdata(f)):
                 if not joint_out:
                     out = open(args.outfile % n_al, 'w')
                 else:
                     out.write('\n\n')
                 #print(''.join(line[:20].rstrip() + '\n' for line in al_lines))
-                translate(aldata, out, 'phylip-sequential', args.output_format)
+                translate(aldata, out, datumformat, args.output_format)
                 if joint_out:
                     out.write('\n\n')
                 else:
