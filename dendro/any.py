@@ -147,6 +147,11 @@ class myPhylTree(itembased):
         #    for desc in tree.allDescendants[child]:
         #        del tree.items[desc]
         # Run a reinitTree
+        # NOTE: error-prone function, because does not check that the nodedist key is valid.
+        try:
+            node, dist = nodedist
+        except ValueError:
+            raise ValueError('%r: an *item* must be provided, ie. a pair (node, dist)' % nodedist)
         tree.items[nodedist[0]] = items
 
     @staticmethod
@@ -158,7 +163,7 @@ class myPhylTree(itembased):
         if node == cls.get_root(tree):
             tree.rootlength = dist
         else:
-            parent = tree.parents[node]
+            parent = tree.parent[node]
             cls.set_items(tree, (parent, None),
                     [(child, (dist if child==node else chdist)) for
                         child,chdist in cls.get_items(tree, (parent, None))])

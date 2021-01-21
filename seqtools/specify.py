@@ -29,7 +29,7 @@ import os.path as op
 import re
 import argparse
 from Bio import SeqIO
-from genomicustools.identify import ultimate_seq2sp, SP2GENEID
+from genomicustools.identify import ultimate_seq2sp, convert_gene2species, SP2GENEID
 from UItools.sed import parse_simple_subst
 
 
@@ -40,6 +40,8 @@ DEFAULT_IN_FMT = r'(?P<gene>.*)'  # Use the named group feature.
 # Here we capture the whole string as the gene name.
 DEFAULT_OUT_FMT = TREEBEST_OUT_FMT = '{gene}_{sp}'
 ALE_OUT_FMT = '{sp}_{gene}'
+
+
 
 #TODO: move to genomicustools.identify
 special_short2long = {
@@ -64,12 +66,29 @@ special_long2short = {
        'Mus musculus': 'Mmusc'  # Because there is the 'Mus' genus!
        }
 
+# The conversions follow a logical directed graph. It would be possible in practice to
+# convert back in the other direction, but currently this requires to change the graph
+# (ie. change the input key of each converter function)
+
+# label parsing:
+# sp_dot    -> sp
+# sp_under  ->
+
+# Then it will attempt conversions in this order: 'sp', 'shortsp', 'ENSG_PREFIX'
+
+# gene -> sp -> shortsp
+#            -> ENSG_PREFIX
+# shortsp -> sp (if no 'gene')
+
+
 def identify_sp(infos, ensembl_version=ENSEMBL_VERSION):
     try:
         return ultimate_seq2sp(infos['gene'], ensembl_version)
     except KeyError:
-        return special_short2long.get(infos['shortsp'],
-                    convert_gene2sp('ENS'+infos['shortsp'].upper()+'G', ensembl_version))
+        try:
+            return special_short2long[infos['shortsp']]
+        except KeyError:
+            return convert_gene2species('ENS'+infos['shortsp'].upper()+'G', ensembl_version)
 
 def identify_shortsp(infos, ensembl_version):
     sp = infos['sp']
@@ -208,9 +227,9 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input-fmt', default=DEFAULT_IN_FMT,
                         help=('sequence label regular expression, with named '
                             'groups [%(default)r]. Valid keys: gene sp shortsp'
-                            'sp_dot sp_under.'))
+                            ' sp_dot sp_under.'))
     parser.add_argument('-l', '--label-fmt', default=DEFAULT_OUT_FMT,
-                        help='[%(default)r]')
+            help='Valid extra keys: %s [%%(default)r]' % ' '.join(identifiers.keys()))
     parser.add_argument('-t', '--transform', action='append',
                         help='[%(default)s]')
     parser.add_argument('-f', '--file-fmt',

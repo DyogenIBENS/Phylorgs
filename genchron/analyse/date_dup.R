@@ -167,16 +167,6 @@ mychronos_control <- chronos.control(epsilon=1e-15)#tol=1e8, iter.max=1e5, eval.
 mychronos_control_C <- mychronos_control
 mychronos_control_C[['nb.rate.cat']] <- 1
 
-date_line <- function(line) {
-  func_params <- list(...)
-  tree <- read.tree(text=line)
-}
-
-date_tree <- function(tree, dating_func=chronos, ...) {
-  func_params <- list(...)
-
-}
-
 chronos_PL1 <- function(tree, calibration, lambda=1, ...) {
   return(chronos(tree, lambda=lambda, calibration=calibration, ...))
 }
@@ -250,6 +240,8 @@ date_MPL <- function(subtree, subcalib) {
   # And rescale edge lengths
   MPL_depth <- max(node.depth.edgelength(chronogram))
   real_depth <- subcalib[chronogram$node.label[1], "age.min"]
+  if( is.na(real_depth) )
+    stop(paste("While rescaling MPL: calibration gives no age for root node", chronogram$node.label[1]))
   # If multiple calibration, do that separately for each which.edge(rowname of subcalib)
   chronogram$edge.length <- chronogram$edge.length * real_depth/MPL_depth
   attr(chronogram, "stderr") <- attr(chronogram, "stderr") * real_depth/MPL_depth
@@ -358,12 +350,12 @@ chronogram2table <- function(chronogram,
 }
 
 
+### DEPRECATED
 process_line <- function(line, calibration, outfile,
                          date_func=date_PL,
                          #date_func_list=list(
                          age_col="age_dist", datation.env=new.env(),
                          col.names=TRUE, ...) {
-  ### DEPRECATED
   count_iter <<- ifelse(exists("count_iter"), count_iter + 1, 0)
   rescale <- identical(date_func, date_MPL)
   tree <- read.tree(text=line)
@@ -601,9 +593,9 @@ date_all_methods <- function(line, calibration,
 
 }
 
+### DEPRECATED
 date_all_trees <- function(allnewicks, calib, outfilename, date_func=date_PL,
                            age_col="age_dist", ...) {
-  ### DEPRECATED
   datation.env <- new.env()
   count_iter  <<- 0
   outfile <- file(outfilename, "w")
@@ -621,10 +613,10 @@ date_all_trees <- function(allnewicks, calib, outfilename, date_func=date_PL,
 }
 
 
+### DEPRECATED
 run <- function(datasetname, agefile, treefile) {
                 #outdir="~/ws2/DUPLI_data85/alignments_analysis/ages",
                 #subtrees_src=".dSsubtrees.nwk") {
-  ### DEPRECATED
 
   ## Penalized likelihood
   #agefile <- "ages/Rodentia_M1_agesdNdSdist.subtreesNoEdit-um2.tsv"
@@ -750,8 +742,8 @@ if(!interactive()) {
   }
   #datasetname <- "Simiiformes_m1w04_ages.subtreesCleanO2-um2-withSG"
   #run(datasetname)
-  datasetname <- args[1]
-  agefile <- args[2]
+  datasetname <- args[1]  # base of the outputs
+  agefile <- args[2]      # calibrations
   treefile <- args[3]
   ncores <- ifelse(length(args) >= 4, as.integer(args[4]), 1)
   nlines <- ifelse(length(args) >= 5, as.integer(args[5]), -1)

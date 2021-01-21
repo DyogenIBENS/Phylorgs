@@ -7,6 +7,9 @@ Read clade conversions from file (like produced with `clade_match`).
 
 If the converted name indicates a polyphyly (with a `+`), delete it.
 The parent clade therefore becomes a polytomy.
+
+NOTE: 1. the deleted branch length is propagated to its *children*.
+      2. the names joined by `+` are not verified (yet).
 """
 
 
