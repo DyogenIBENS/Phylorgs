@@ -75,6 +75,13 @@ def main():
     pars_multiply = subp.add_parser('multiply', aliases=['mult'], help='')
     pars_multiply.add_argument('factor', type=float, help='')
 
+    #TODO:
+    #pars_replace = subp.add_parser('replace', aliases=['repl'], help='')
+    #pars_replace.add_argument('lengths_table',
+    #                    help=('3 columns tab-separated file. The 2 first are '
+    #                    'for the parent and child node labels of the branch. '
+    #                    "'-' for stdin.")
+
     args = parser.parse_args()
     transform = args.transform
     delattr(args, 'transform')
