@@ -786,7 +786,7 @@ def get_taxon(node, ensembl_version=ENSEMBL_VERSION):
         try:
             return convert_gene2species(node.name, ensembl_version)
         except KeyError as err:
-            logger.warning(err)
+            logger.warning(','.join(err.args))
     try:
         return ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
     except AttributeError:

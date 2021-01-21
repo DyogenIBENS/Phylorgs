@@ -110,6 +110,8 @@ cd $genetreedir
 # Create a temporary directory for output files.
 if [ ! -d "$genetree" ]; then
 	mkdir "$genetree"
+else
+    echo "WARNING: output directory $genetree already exists. Overwrite previous results." >&2
 fi
 
 # convert to absolute path. Needed in the temporary ctl file.
@@ -154,7 +156,7 @@ outfile  = outfile.mlc"
 # absolute paths to the input and output files
 tmpctl="$genetree/codeml.$ctlext" # if [[ ${ctlfile[#]} -gt 95 ]]
 echo "$files" > "$tmpctl"
-sed -rn '/^\s*(seqfile|treefile|outfile)\s*=/!p' "$genetree.$ctlext" >> "$tmpctl"
+sed -r '/^\s*(seqfile|treefile|outfile)\s*=/d' "$genetree.$ctlext" >> "$tmpctl"
 
 cd "$genetree"
 

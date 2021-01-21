@@ -80,6 +80,9 @@ r'''^(This is a rooted tree. +Please check!)?
                         #ParseUnit('M5 (gamma)',
                         #          r'^Parameters in M5 (gamma):\n\s+a=\s+([0-9.-]+)\s+b=\s+([0-9.-]+)$',
                         #          types=[float, float])
+                        #ParseUnit('M0',
+                        #          r'^omega \(dN/dS\) =\s+([0-9.-]+)$',
+                        #          types=[float])
                         ParseBloc('dNdS', #start='dN & dS for each branch',
                                   # after follows the table
                                   units=[ParseUnit('header',

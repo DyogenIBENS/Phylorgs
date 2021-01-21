@@ -348,12 +348,20 @@ def branch2nb(mlc, fulltree):  # ~~> pamliped.codeml_parser?
                 regex_w = re.compile(r'^Parameters in M5 \(gamma\):$')
                 mlc.seek(checkpoint)
                 continue
+            elif model == 5:
+                #raise LookupError('regex_w (model 5) not matched before EOF')
+                model = 0
+                regex_w = re.compile(r'^omega \(dN/dS\) =\s+([0-9.-]+)$')
+                mlc.seek(checkpoint)
+                continue
             else:
-                raise LookupError('regex_w (model 5) not matched before EOF')
+                raise LookupError('regex_w (model 1/model 5/model 0) not matched before EOF')
         line = line.rstrip()
 
     if model == 1:
         omegas = [float(w) for w in regex_w.sub('', line).split()]
+    elif model == 0:
+        omegas = [float(regex_w.match(line).group(1))] * len(branches)
     elif model == 5:
         line = mlc.readline()
         try:
