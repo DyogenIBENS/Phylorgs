@@ -2,21 +2,33 @@
 # -*- coding: utf-8 -*-
 
 
-"""Phylogenetic trees can be represented as string in various formats:
-    - Newick (many variants) -> Ete3 is a good tool for this.
-    - Nexus
-    - PhyloXML
-      
-Also the embedding of comments may vary.
-- NHX in newick trees
-- another format in nexus trees such as produced by BEAST.
+"""
+Convert between miscellaneous phylogenetic tree file formats.
 
+Details:
+--------
+Phylogenetic trees can be represented as string in various formats:
+- Newick (many variants) -> Ete3 is a good tool for this.
+- Nexus
+- PhyloXML
+
+Also, the embedding of attributes in the parenthesized representations may vary.
+- NHX in newick trees: '[&&NHX:key=value:key2=value2]'
+- another format in nexus trees such as produced by BEAST/LSD: [&key=value,key2=value2].
+
+The support values may be placed inconsistently between formats/programs:
+- after the node label / after the branch length.
+
+Notes:
 The Bio.Phylo.convert doesn't properly convert the comments from BEAST Nexus files.
+
 """
 
 import re
 from collections import OrderedDict
 from Bio import Phylo
+import logging
+logger = logging.getLogger(__name__)
 
 
 def beast_comment_parser(text):
@@ -73,8 +85,12 @@ def nexus2nhx(infile, outfile):
     with open(outfile, 'w') as out:
         for tree in Phylo.parse(infile, 'nexus'):
             for node in tree.get_terminals() + tree.get_nonterminals():
+                #if not node.is_terminal(): # For lsd2 output
+                #    node.name = node.confidence
+                #    node.confidence = None
                 node.comment = NHX_comment_formatter(
                                     beast_comment_parser(node.comment))
+                logger.debug('node %r. conf=%r length=%r comment=%r', node.name, node.confidence, node.branch_length, node.comment)
             Phylo.write(tree, out, 'newick')
 
 ## TODO: tests:
@@ -173,3 +189,33 @@ def nhx2bayestraits(infile, outfile, **nwk_kwargs):
 # nx2 = Nexus.Nexus(nexfile)
 # 2. plot the converted tree:
 # plottree(nx2.trees[0], bionexus_methods.get_items, bionexus_methods.get_label, nx2.trees[0].node(nx2.trees[0].root))
+
+def main():
+    from sys import stdin, stdout
+    import argparse as ap
+    logging.basicConfig()
+    parser = ap.ArgumentParser(__doc__)
+    
+    common_parser = ap.ArgumentParser(add_help=False)
+    common_parser.add_argument('infile', nargs='?', default=stdin, help='[stdin]')
+    common_parser.add_argument('-o', '--outfile', default=stdout, help='[stdout]')
+    common_parser.add_argument('-d', '--debug', action='store_true', help='set logging level to DEBUG')
+
+    subp = parser.add_subparsers(dest='command')
+    subp.add_parser('nexus2nhx', help='Tested on Beast output', parents=[common_parser])
+    subp.add_parser('nhx2bayestraits', parents=[common_parser])
+
+    args = parser.parse_args()
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+
+    if args.command == 'nexus2nhx':
+        nexus2nhx(args.infile, args.outfile)
+    elif args.command == 'nhx2bayestraits':
+        nhx2bayestraits(args.infile, args.outfile)
+    else:
+        raise ValueError('Invalid command %r' % args.command)
+
+
+if __name__ == '__main__':
+    main()

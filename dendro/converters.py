@@ -4,7 +4,7 @@
 (ete3, LibsDyogen, scipy.hclust.linkage...)"""
 
 
-from .bates import rev_dfw_descendants
+from dendro.bates import rev_dfw_descendants
 
 
 def get_data(tree, nodedist):
@@ -135,3 +135,57 @@ for from_, todict in list(converterchoice.items()):
 converterchoice['phyltree']['ete3_f1'] = converterchoice['prottree']['ete3']
 converterchoice['prottree']['ete3_f1'] = converterchoice['prottree']['ete3']
 converterchoice['ete3_f1'] = converterchoice['ete3']
+
+
+def main():
+    def eval_scalar(val):
+        if val in ('None', 'False', 'True'):
+            return eval(val)
+        else:
+            try:
+                return int(val)
+            except ValueError:
+                try:
+                    return float(val)
+                except ValueError:
+                    # val will remain a string.
+                    return val
+
+    from sys import stdin
+    import argparse as ap
+    from dendro.parsers import parserchoice
+    from dendro.any import methodchoice
+
+    parser = ap.ArgumentParser(description=__doc__)
+    parser.add_argument('inputtree', default=stdin)
+    parser.add_argument('-p', '--parser', default='phyltree', help='[%(default)s]')
+    parser.add_argument('-o', '--outformat', default='ete3', help='[%(default)s]')
+    parser.add_argument('-a', '--out-kwargs', nargs='+',
+                        help=('list of key=value arguments to give to '
+                              '`print_newick`. Ex: "features=[]" for the ete3 '
+                              'output format.'))
+
+    args = parser.parse_args()
+
+    treeparser = parserchoice[args.parser]
+    convert = converterchoice[args.parser][args.outformat]
+    print_newick = methodchoice[args.outformat].print_newick
+
+    kwargs = {}
+    for keyval in args.out_kwargs:
+        key, val = keyval.split('=', 1)
+        if val[0] == '[' and val[-1] == ']':
+            newval = []
+            for elem in val[1:-1].split(','):
+                newval.append(eval_scalar(elem.strip()))
+        else:
+            newval = eval_scalar(val)
+        kwargs[key] = newval
+
+
+    for tree in treeparser(args.inputtree):
+        print_newick(convert(tree), **kwargs)
+
+
+if __name__ == '__main__':
+    main()
