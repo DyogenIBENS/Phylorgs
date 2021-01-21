@@ -37,66 +37,71 @@ STRUCT_DO = {',': go_same,
              ')': go_out}
 
 
-def main(inputtree, outputfile, inplace=False, indent=INDENT):
-    all_treetxt = inputtree.read()
-    all_trees = all_treetxt.rstrip('; \t\n\r').split(';')
-    #print(len(all_trees))
-    #print(len(all_trees), all_trees)
-
-    if inplace:
-        out = StringIO()  # Buffer the output in-memory, in case of error.
-    else:
-        out = outputfile
-    
-    try:
-        for treetxt in all_trees:
-            # Split text by semantic units: nodes, commas, parentheses.
-            nindent = 0
-            #prev_pos = 0
-            #for m in RE_STRUCT.finditer(treetxt):
-            structmatch = RE_STRUCT.search(treetxt)
-            while structmatch:
-                struct = structmatch.group().strip()
-                start,end = structmatch.start(), structmatch.end()
-                if struct in STRUCT_DO:
-                    nindent, newstruct = STRUCT_DO[struct](nindent, indent)
-
-                    out.write(treetxt[:start].rstrip().lstrip() + newstruct)
-
-                    treetxt = treetxt[end:]
-                elif struct in PROTECT:
-                    #out.write(treetxt[:end])
-                    #treetxt = treetxt[structmatch.end():]
-                    closing_char = PROTECT[struct]
-                    closing_pos = treetxt.find(closing_char, end)
-                    out.write(treetxt[:(closing_pos+1)])
-                    treetxt = treetxt[(closing_pos+1):]
-                else:
-                    raise ValueError("Invalid structure character %r" % struct)
-
-                structmatch = RE_STRUCT.search(treetxt)
-            out.write(treetxt + ';\n')
-        if inplace:
-            inputtree.close()
-            with open(inputtree.name, 'w') as realout:
-                realout.write(out.getvalue())
-    
-    except BrokenPipeError:  # IOError in Python2.7
-        if out is stdout:
-            print('indent_nwk:Caught BrokenPipeError to stdout.', file=stderr)
+def main(treefiles, inplace=False, indent=INDENT):
+    if not treefiles:
+        treefiles = [stdin]
+    for treefile in treefiles:
+        if treefile is stdin:
+            all_treetxt = stdin.read()
         else:
-            raise
-    finally:
-        if out is not stdout:
-            out.close()
+            with open(treefile) as inputtree:
+                all_treetxt = inputtree.read()
+
+        all_trees = all_treetxt.rstrip('; \t\n\r').split(';')
+        #print(len(all_trees))
+        #print(len(all_trees), all_trees)
+
+        if inplace:
+            out = StringIO()  # Buffer the output in-memory, in case of error.
+        else:
+            out = stdout
+        
+        try:
+            for treetxt in all_trees:
+                # Split text by semantic units: nodes, commas, parentheses.
+                nindent = 0
+                #prev_pos = 0
+                #for m in RE_STRUCT.finditer(treetxt):
+                structmatch = RE_STRUCT.search(treetxt)
+                while structmatch:
+                    struct = structmatch.group().strip()
+                    start,end = structmatch.start(), structmatch.end()
+                    if struct in STRUCT_DO:
+                        nindent, newstruct = STRUCT_DO[struct](nindent, indent)
+
+                        out.write(treetxt[:start].rstrip().lstrip() + newstruct)
+
+                        treetxt = treetxt[end:]
+                    elif struct in PROTECT:
+                        #out.write(treetxt[:end])
+                        #treetxt = treetxt[structmatch.end():]
+                        closing_char = PROTECT[struct]
+                        closing_pos = treetxt.find(closing_char, end)
+                        out.write(treetxt[:(closing_pos+1)])
+                        treetxt = treetxt[(closing_pos+1):]
+                    else:
+                        raise ValueError("Invalid structure character %r" % struct)
+
+                    structmatch = RE_STRUCT.search(treetxt)
+                out.write(treetxt + ';\n')
+            if inplace:
+                inputtree.close()
+                with open(inputtree.name, 'w') as realout:
+                    realout.write(out.getvalue())
+        
+        except BrokenPipeError:  # IOError in Python2.7
+            if out is stdout:
+                print('indent_nwk:Caught BrokenPipeError to stdout.', file=stderr)
+            else:
+                raise
+        finally:
+            if out is not stdout:
+                out.close()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('inputtree', nargs='?', type=argparse.FileType(),
-                        default=stdin)
-    parser.add_argument('outputfile', nargs='?', type=argparse.FileType('w'),
-                        default=stdout)
+    parser.add_argument('treefiles', nargs='*', help='[stdin]')
     parser.add_argument('-i', '--inplace', action='store_true',
                         help='Edit input file in place')
     

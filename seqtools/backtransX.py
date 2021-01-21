@@ -97,12 +97,12 @@ if __name__ == '__main__':
     logging.basicConfig(format=logging.BASIC_FORMAT)
     parser = ap.ArgumentParser(description=__doc__)
     parser.add_argument('inputprot', help='Typically an alignment file')
-    parser.add_argument('inputdna', help='Gaps are ignored.')
+    parser.add_argument('inputdna', help='If aligned, gaps are ignored.')
     parser.add_argument('outfile', nargs='?', default=stdout,
                         type=ap.FileType('w'))
     parser.add_argument('-f', '--format', default=FORMAT, 
                         help='Input and output sequence format [%(default)s]')
-    
+
     args = parser.parse_args()
     backtransIO(**vars(args))
 

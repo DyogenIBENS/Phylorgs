@@ -11,6 +11,7 @@ filename:5-   (the 5th to the end)
 """
 
 from sys import stdin, stdout, stderr
+import os.path as op
 import argparse
 import re
 from io import StringIO
@@ -20,10 +21,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-EXT2FMT = {'fa': 'fasta', 'fasta': 'fasta', 'mfa': 'multifasta',
-           'phylip': 'phylip-relaxed',
-           'nx': 'nexus',
-           'paml': 'evolver'}
+EXT2FMT = {'fa': 'fasta',
+           'mfa': 'multifasta',
+           'phy': 'phylip-sequential-relaxed', # 'phylip': 'phylip-relaxed',
+           'nx': 'nexus', 'nex': 'nexus',
+           'paml': 'evolver', 'mphy': 'evolver'}
 
 
 PHYLIP_HEAD_REG = re.compile(r'^\s*\d+\s+\d*$')
@@ -32,9 +34,11 @@ PHYLIP_HEAD_REG = re.compile(r'^\s*\d+\s+\d*$')
 def guess_format(filename, default='fasta'):
     if filename in (stdin, stdout, '-'):
         return default
-    ext = filename.rsplit('.', 1)[1].split(':')[0]
+    ext = op.splitext(filename)[1].split(':')[0].lstrip('.')
+    if not ext:
+        return default
     # specifications for the number of alignments are specified after colon
-    return EXT2FMT[ext]
+    return EXT2FMT.get(ext, ext)
 
 
 def split_evolver(f, start=0, end=None):
@@ -50,12 +54,13 @@ def split_evolver(f, start=0, end=None):
 
                     if n_al>=start:
                         #yield SeqIO.parse(StringIO(''.join(al_lines)), 'phylip-sequential')
+                        logger.debug('Data #%d: %d input lines.', n_al, len(al_lines))
                         yield StringIO(''.join(al_lines))
 
                     al_lines = []
                     n_al += 1
                     if end is not None and n_al > end:
-                        logger.info('seqconv:Parsed %d alignments.' % (n_al-start))
+                        logger.info('Parsed %d alignments.' % (n_al-start))
                         return
                 nseq, length = [int(x) for x in line.split()]
                 al_lines = [line]
@@ -66,9 +71,10 @@ def split_evolver(f, start=0, end=None):
     #print(''.join(line[:20].rstrip() + '\n' for line in al_lines))
 
     if n_al >= start:
+        logger.debug('Data #%d: %d input lines.', n_al, len(al_lines))
         yield StringIO(''.join(al_lines))
         n_al += 1
-    logger.info('seqconv:Parsed %d alignments.' % n_al)
+    logger.info('Parsed %d alignments.' % n_al)
 
 
 def split_multidata(f, sep='', start=0, end=None):
@@ -84,13 +90,13 @@ def split_multidata(f, sep='', start=0, end=None):
                 n_al += 1
 
                 if end is not None and n_al > end:
-                    logger.info('seqconv:Parsed %d alignments.' % (n_al-start))
+                    logger.info('Parsed %d alignments.' % (n_al-start))
                     return
                 al_lines = []
     if al_lines and n_al >= start:
         yield StringIO(''.join(al_lines))
         n_al += 1
-    logger.info('seqconv:Parsed %d alignments.' % (n_al-start))
+    logger.info('Parsed %d alignments.' % (n_al-start))
     #print(''.join(line[:20].rstrip() + '\n' for line in al_lines))
 
 
@@ -105,87 +111,122 @@ def write_phylip_sequential_relaxed(al, outfile):
     Write sequences on a single line.
     """
     
-    if outfile is not stdout:
-        outfile = open(outfile)
+    try:
+        outfile = open(outfile, 'w')
+        was_closed = True
+    except TypeError:
+        was_closed = False
+        pass  # Already an opened file object.
     try:
         outfile.write('%d\t%d\n' % (len(al), al.get_alignment_length()))
         for record in al:
             outfile.write('%s  %s\n' % (record.name, record.seq))
     finally:
-        if outfile is not stdout:
+        if was_closed:
             outfile.close()
 
 
-def convert_one_dataset(infile, out, fro='fasta', to='phylip-relaxed'):
+def convert_one_dataset(infile, out, fro='fasta', to='phylip-sequential-relaxed'):
     if to == 'phylip-sequential-relaxed':
-        write_phylip_sequential_relaxed(AlignIO.read(infile, fro), outfile)
+        write_phylip_sequential_relaxed(AlignIO.read(infile, fro), out)
     else:
         AlignIO.convert(infile, fro, out, to)
 
 
-def main(infile, outfile, fro=None, to=None):
-    if fro is None:
-        fro = guess_format(infile)
+def main(infiles, outfile=None, fro=None, to=None):
     if to is None:
-        to = guess_format(outfile, 'phylip-relaxed')
+        to = guess_format(outfile, 'phylip-sequential-relaxed')
 
-    if infile == '-':
-        infile = stdin
+    n_al = 0  # Counter of the input alignments.
 
-    if outfile in (stdout, '-'):
+    if outfile is None:
         joint_out = True
         out = stdout
+        if to == 'evolver': to = 'phylip-sequential-relaxed'
     elif to[:7] in ('evolver', 'multifa'):
+        # FIXME: the above check is unnecessary: just specify a uniq outfile, and -to=phy
         to = 'phylip-sequential' if to == 'evolver' else 'fasta'
         joint_out = True
         out = open(outfile, 'w')
     else:
-        joint_out = False
-        out = open(outfile, 'w')
+        try:
+            outfile_n = outfile % n_al
+            joint_out = False
+        except TypeError:
+            out = open(outfile, 'w')
+            joint_out = True
 
-    n_al = 0  # Counter of the input alignments.
+    for infile in infiles:
+        if fro is None:
+            fro = guess_format(infile)
+        if fro.startswith('evolver') or fro.startswith('multifa'):
+            iterdata = split_evolver if fro.startswith('evolver') else split_multidata
+            srcfmt = 'phylip-relaxed' if fro.startswith('evolver') else 'fasta'
+            # NOTE: PAML's Phylip parser allows up to 30 characters in sequence names.
+            # In addition, it separates the name and sequence by 2 spaces.
+            try:
+                infile, selection = infile.rsplit(':', 1)
+                # ValueError if there is no ':'
+                start, end = re.match(r'(\d+)(?:-(\d*))?$', selection).groups()
+                start = int(start)
+                if end is None:
+                    end = start
+                elif end == '':
+                    end = None  # read the entire file
+                else:
+                    end = int(end)
+            except ValueError:
+                start, end = 0, None
 
-    if fro.startswith('evolver') or fro.startswith('multifa'):
-        iterdata = split_evolver if fro.startswith('evolver') else split_multidata
-        srcfmt = 'phylip-sequential' if fro.startswith('evolver') else 'fasta'
-        ext = infile.rsplit('.', 1)[1]
-        if ':' in ext:
-            infile, selection = infile.rsplit(':', 1)
-            start, end = re.match(r'(\d+)(?:-(\d*))?$', selection).groups()
-            start = int(start)
-            if end is None:
-                end = start
-            elif end == '':
-                end = None  # read the entire file
-            else:
-                end = int(end)
+            f = stdin if infile == '-' else open(infile)
+            try:
+                for aldata in iterdata(f, start=start, end=end):
+                    if not joint_out:
+                        out = open(outfile % n_al, 'w')
+                    logger.debug('Data #%d: out=%s %s -> %s (joint=%s)', n_al, out.name, srcfmt, to, joint_out)
+                    n_al += 1
+                    convert_one_dataset(aldata, out, srcfmt, to)
+                    if joint_out:
+                        out.write('\n\n')
+                    else:
+                        out.close()
+            finally:
+                if infile != '-': f.close()
         else:
-            start, end = 0, None
-        with open(infile) as f:
-            for aldata in iterdata(f, start=start, end=end):
-                n_al += 1
-                convert_one_dataset(aldata, out, srcfmt, to)
-                if joint_out:
-                    out.write('\n\n')
-    else:
-        convert_one_dataset(infile, out, fro, to)
+            if infile == '-': infile = stdin
+            if not joint_out:
+                out = open(outfile % n_al, 'w')
+            logger.debug('Data #%d: out=%s %s -> %s (joint=%s)', n_al, out.name, fro, to, joint_out)
+            n_al += 1
+            convert_one_dataset(infile, out, fro, to)
+            if joint_out:
+                out.write('\n\n')
+            else:
+                out.close()
 
-    if outfile not in (stdout, '-'):
+    if outfile is not None:
         out.close()
 
 
 if __name__ == '__main__':
-    logging.basicConfig()
-    parser = argparse.ArgumentParser(description=__doc__, epilog=_EPILOG)
-    parser.add_argument('infile', nargs='?', #type=argparse.FileType('r'),
-                        default=stdin)
-    parser.add_argument('outfile', nargs='?', #type=argparse.FileType('w'),
-                        default=stdout)
+    logging.basicConfig(format='%(levelname)s:%(funcName)-20s:%(message)s')
+
+    parser = argparse.ArgumentParser(description=__doc__, epilog=_EPILOG,
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('infiles', nargs='*', #type=argparse.FileType('r'),
+                        default=['-'], help='[stdin]')
+    parser.add_argument('-o', '--outfile',
+            help='Useful to specify splitted outfiles, e.g. out_%%02d.fa [stdout]')
     parser.add_argument('-f', '--from', dest='fro',
                         help='[guess from extension, or fasta if stdin]')
     parser.add_argument('-t', '--to',
-                        help='[guess from extension, or phylip-relaxed if stdout]')
-    
+                        help='[guess from extension, or phylip-sequential-relaxed if stdout]')
+    parser.add_argument('-v', '--verbose', action='count', default=0)
+
     args = parser.parse_args()
+
+    logger.setLevel(30 - 10*args.verbose)
+    delattr(args, 'verbose')
+
     main(**vars(args))
 
