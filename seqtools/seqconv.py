@@ -41,6 +41,23 @@ def guess_format(filename, default='fasta'):
     return EXT2FMT.get(ext, ext)
 
 
+def parse_filename_range(infile):
+    try:
+        infile, selection = infile.rsplit(':', 1)
+        # ValueError if there is no ':'
+        start, end = re.match(r'(\d+)(?:-(\d*))?$', selection).groups()
+        start = int(start)
+        if end is None:
+            end = start
+        elif end == '':
+            end = None  # read the entire file
+        else:
+            end = int(end)
+    except ValueError:
+        start, end = 0, None
+    return infile, start, end
+
+
 def split_evolver(f, start=0, end=None):
     al_lines = []
     n_al = 0
@@ -164,19 +181,7 @@ def main(infiles, outfile=None, fro=None, to=None):
             srcfmt = 'phylip-relaxed' if fro.startswith('evolver') else 'fasta'
             # NOTE: PAML's Phylip parser allows up to 30 characters in sequence names.
             # In addition, it separates the name and sequence by 2 spaces.
-            try:
-                infile, selection = infile.rsplit(':', 1)
-                # ValueError if there is no ':'
-                start, end = re.match(r'(\d+)(?:-(\d*))?$', selection).groups()
-                start = int(start)
-                if end is None:
-                    end = start
-                elif end == '':
-                    end = None  # read the entire file
-                else:
-                    end = int(end)
-            except ValueError:
-                start, end = 0, None
+            infile, start, end = parse_filename_range(infile)
 
             f = stdin if infile == '-' else open(infile)
             try:

@@ -28,6 +28,8 @@ ENSMMUG00000016936
 ENSG00000105926
 ENSCSAG00000014108
 ENSPPYG00000017722
+
+1-based coordinates, end included.
 """
 
 
@@ -69,7 +71,7 @@ def main(positionsfile, alignmentfile=stdin, to_codons=False, fillchar='-',
             logger.debug('Before: %s', record.seq[start:end])
             record.seq[start:end] = fillchar * length
             logger.debug('After:  %s', record.seq[start:end])
-        assert slen == len(record.seq)
+        assert slen == len(record.seq), "Bad new length at %r" % record.name
         recordlist.append(record)
 
     SeqIO.write(recordlist, outputfile, format)
@@ -82,7 +84,7 @@ if __name__ == '__main__':
     parser.add_argument('alignmentfile', nargs='?', default=stdin)
     parser.add_argument('-f', '--format', default='fasta',
                         help='Input and output sequence format [%(default)s]')
-    parser.add_argument('-o', '--outputfile', default=stdout)
+    parser.add_argument('-o', '--outputfile', default=stdout, help='[stdout]')
     parser.add_argument('-c', '--to-codons', action='store_true',
                         help='Multiply ranges boundaries by 3 to fill codon '\
                         'alignments using amino-acid positions')

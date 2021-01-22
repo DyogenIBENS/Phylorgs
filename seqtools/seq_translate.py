@@ -14,7 +14,7 @@ from Bio import SeqIO
 from Bio.Alphabet import IUPAC
 
 try:
-    from seqtools.seqconv import split_multidata, split_evolver
+    from seqtools.seqconv import parse_filename_range, split_multidata, split_evolver
 except ImportError:
     print('seqtools.seqconv.split_evolver not available for PAML input format.', file=sys.stderr)
 
@@ -63,11 +63,12 @@ def main():
             else:
                 joint_out = False
 
-            if args.inputfile == '-' or args.inputfile == sys.stdin:
+            infile, start, end = parse_filename_range(args.inputfile)
+            if infile == '-' or infile == sys.stdin:
                 f = sys.stdin
             else:
-                f = open(args.inputfile)
-            for n_al, aldata in enumerate(iterdata(f)):
+                f = open(infile)
+            for n_al, aldata in enumerate(iterdata(f, start=start, end=end)):
                 if not joint_out:
                     out = open(args.outfile % n_al, 'w')
                 else:
