@@ -8,18 +8,21 @@ help="$usage
 
 -t: do translate the input cDNA
 -p: the protein alignment (if none, the cDNA will be translated).
+-s: suffix to strip from the basename to construct the output (protein file)
 
 Output the filtered cDNA alignment
 "
 
 protinput=""
 dotranslate=0
+suffix='_prot'
 
 OPTIND=1
-while getopts 'htp:' opt; do
+while getopts 'htp:s:' opt; do
     case "$opt" in
         t) dotranslate=1 ;;
         p) protinput="$OPTARG" ;;
+        s) suffix="$OPTARG" ;;
         h) echo "$help" && exit ;;
     esac
 done
@@ -44,7 +47,7 @@ if [[ -z "$protinput" ]]; then
 else
     # the output name should be based on the protein input
     protinputbase="${protinput%.fa*}"
-    inputbase="${protinputbase%_prot}"
+    inputbase="${protinputbase%$suffix}"
 fi
 
 
@@ -61,9 +64,7 @@ $SCRIPTS/seqtools/seq_translate.py "${inputal}" "${protinput}"
 fi
 
 # Run HmmCleaner on the proteins
-HmmCleaner.pl "${protinput}" >"${protinputbase}_cleanedcounts.txt"
-# Creates an unwanted .fasta alignment.
-rm "${protinputbase}_hmm.fasta"
+HmmCleaner.pl --log_only "${protinput}" >"${protinputbase}_cleanedcounts.txt"
 
 total=0
 
