@@ -7,7 +7,7 @@ containing "X" without any warning.
 """
 
 
-from sys import stdout
+from sys import stdout, stdin
 import argparse as ap
 from Bio import SeqIO, SeqRecord, Seq
 from collections import OrderedDict
@@ -83,6 +83,8 @@ def backtrans(prots: dict, dnas: dict):
 
 
 def backtransIO(inputprot, inputdna, outfile, format=FORMAT):
+    if inputprot == "-":
+        inputprot = stdin
     prots = OrderedDict((seq.id, seq)
                         for seq in SeqIO.parse(inputprot, format,
                             Alphabet.IUPAC.extended_protein))
@@ -96,7 +98,7 @@ def backtransIO(inputprot, inputdna, outfile, format=FORMAT):
 if __name__ == '__main__':
     logging.basicConfig(format=logging.BASIC_FORMAT)
     parser = ap.ArgumentParser(description=__doc__)
-    parser.add_argument('inputprot', help='Typically an alignment file')
+    parser.add_argument('inputprot', help='Typically an alignment file ("-" for stdin)')
     parser.add_argument('inputdna', help='If aligned, gaps are ignored.')
     parser.add_argument('outfile', nargs='?', default=stdout,
                         type=ap.FileType('w'))

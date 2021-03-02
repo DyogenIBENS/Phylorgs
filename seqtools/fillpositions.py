@@ -63,7 +63,7 @@ def main(positionsfile, alignmentfile=stdin, to_codons=False, fillchar='-',
     for record in SeqIO.parse(alignmentfile, format):
         slen = len(record.seq)
         record.seq = record.seq.tomutable()  # Edit in place.
-        seqranges = ranges[record.name]
+        seqranges = ranges.get(record.name, [])
         logger.debug('Filling %d ranges in %s', len(seqranges), record.name)
         for start, end in seqranges:
             logger.debug('range %d-%d', start, end)
@@ -71,6 +71,7 @@ def main(positionsfile, alignmentfile=stdin, to_codons=False, fillchar='-',
             logger.debug('Before: %s', record.seq[start:end])
             record.seq[start:end] = fillchar * length
             logger.debug('After:  %s', record.seq[start:end])
+            assert end <= slen, "Invalid: end > sequence length"
         assert slen == len(record.seq), "Bad new length at %r" % record.name
         recordlist.append(record)
 
