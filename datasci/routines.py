@@ -727,6 +727,32 @@ def display_decorrelate(decorr_item, data_raw, data_transformed, data_decorred,
     #fig.tight_layout()  # tight layout often goes havoc with colorbars.
     return fig
 
+
+def display_regress_scatter(xvar, yvar, data=None, ax=None):
+    scatter_density(xvar, yvar, alpha=0.3, s=9, data=data, ax=ax)
+    if ax is None: ax = plt.gca()
+    xlim = np.array(ax.get_xlim())
+    ylim = ax.get_ylim()
+
+    #if var not in data.columns and re.search(r'[+-/*]', var):
+    #    var = data[var]
+    #    correlated_var = data[correlated_var]
+    finite = np.isfinite(data[xvar]) & np.isfinite(data[yvar])
+
+    fit = sm.OLS(data[yvar][finite], sm.add_constant(data[[xvar]][finite])).fit()
+    a, b = fit.params[['const', xvar]]
+    #ax.annotate('', xright, ybottom, ''
+    ax.plot(xlim, a + b*xlim, '-', label='y = %g + %g × x' % (a,b))
+    ax.annotate(('%d non finite\n' % (~finite).sum()) +
+        ('Pearson R: %.4f\n' % stats.pearsonr(data[xvar][finite], data[yvar][finite])[0]) +
+        ('Spearman R: %.4f\n' % stats.spearmanr(data[xvar][finite], data[yvar][finite])[0]),
+        (xlim[1], ylim[1] if b<0 else ylim[0]),
+        ha='right', va=('top' if b<0 else 'bottom'))
+    ax.legend()
+    return ax
+
+
+
 def bootreg(y, x, data, n=100, model=sm.OLS, fitmethod="fit", add_const=True, **fitkw):
     #data = fit.model.data
     if isinstance(x, str):

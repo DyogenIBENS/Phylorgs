@@ -369,3 +369,38 @@ def quantiles_from_kde(density, q, start, stop, n=100):
     cdf /= cdf[-1]
     return x[np.searchsorted(cdf, q, side='left')]
 
+
+def distrib_histogram(distribname, *dargs, xmin=None, xmax=None, nbins=4, **dkwargs):
+    """Compute bar heights for a histogram representing a distribution.
+
+    If xmin or xmax are None, automatically get them from the distrib definition space
+    (use 0.025 and 0.975 quantiles if those are infinite)"""
+    distrib = vars(stats)[distribname]
+    # boundaries of the variable space are distrib.a, distrib.b
+    fdist = distrib.freeze(*dargs, **dkwargs)
+    loc = dkwargs.get('loc', 0)
+    if xmin is None:
+        xmin = (fdist.ppf(0.001) + loc) if np.isinf(distrib.a) else distrib.a
+    if xmax is None:
+        xmax = (fdist.isf(0.001) + loc) if np.isinf(distrib.b) else distrib.b
+    bins = np.linspace(xmin, xmax, nbins+1)
+    heights = np.zeros(nbins)
+    for i in range(nbins):
+        heights[i] = fdist.expect(lb=bins[i], ub=bins[i+1])
+    return bins, heights
+
+
+def distrib_equalcategories(distribname, *dargs, xmin=None, xmax=None, nbins=4, **dkwargs):
+    """Compute means and boundaries for a each equally-likely bin of the distribution.
+    """
+    distrib = vars(stats)[distribname]
+    # boundaries of the variable space are distrib.a, distrib.b
+    fdist = distrib.freeze(*dargs, **dkwargs)
+    loc = dkwargs.get('loc', 0)
+    q = np.linspace(0, 1, nbins+1)
+    bins = fdist.ppf(q)
+    heights = np.zeros(nbins)
+    for i in range(nbins):
+        heights[i] = fdist.expect(lb=bins[i], ub=bins[i+1], conditional=True)
+    return bins, heights
+
