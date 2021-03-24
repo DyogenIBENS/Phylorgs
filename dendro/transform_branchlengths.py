@@ -64,7 +64,9 @@ def main():
     parser.add_argument('-p', '--parser', choices=list(set(k.lower() for k in parserchoice.keys())),
                         default='ete3_f1',
                         help='[%(default)s]')
-    
+    parser.add_argument('-w', '--writer-args',
+                        help='Command separated list of key=value pairs. Ex for ete3: dist_formatter="%%f"')
+
     subp = parser.add_subparsers(dest='transform')
 
     pars_discret = subp.add_parser('discretize', aliases=['disc'],
@@ -90,6 +92,21 @@ def main():
     #convert_tree = convertchoice[args.parser]['ete3']
     tree_methods = methodchoice[args.parser]
 
+    writer_args = {}
+    if args.writer_args:
+        for item in args.writer_args.split(','):
+            key,value = item.split('=', 1)
+            if len(value)>1 and ((value[0] == "'" and value[-1] == "'") or (value[0] == '"' and value[-1] == '"')):
+                value = value[1:-1]
+            elif value in ('True', 'False'):
+                value = eval(value)
+            else:
+                try:
+                    value = int(value)
+                except ValueError:
+                    value = float(value)
+            writer_args[key] = value
+
     if transform in ('disc', 'discretize'):
         func = discretize_branchlengths
         kwargs = dict(nbins=args.nbins)
@@ -101,7 +118,7 @@ def main():
 
     for tree in parse_tree(args.treefile):
         func(tree_methods, tree, **kwargs)  # inplace
-        tree_methods.print_newick(tree)
+        tree_methods.print_newick(tree, **writer_args)
 
 
 if __name__=='__main__':

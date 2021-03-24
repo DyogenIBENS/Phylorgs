@@ -14,6 +14,16 @@ logger.addHandler(ch)
 URL = "http://www.ensembl.org/biomart/"
 #ARCHIVE = "http://{}.archive.ensembl.org/biomart/"
 ARCHIVES = {
+            103: "http://feb2021.archive.ensembl.org/biomart/",
+            102: "http://nov2020.archive.ensembl.org/biomart/",
+            101: "http://aug2020.archive.ensembl.org/biomart/",
+            100: "http://apr2020.archive.ensembl.org/biomart/",
+            99: "http://jan2020.archive.ensembl.org/biomart/",
+            98: "http://sep2019.archive.ensembl.org/biomart/",
+            97: "http://jul2019.archive.ensembl.org/biomart/",
+            96: "http://apr2019.archive.ensembl.org/biomart/",
+            95: "http://jan2019.archive.ensembl.org/biomart/",
+            94: "http://oct2018.archive.ensembl.org/biomart/",
             93: "http://jul2018.archive.ensembl.org/biomart/",
             87: "http://dec2016.archive.ensembl.org/biomart/",
             86: "http://oct2016.archive.ensembl.org/biomart/",
@@ -71,7 +81,7 @@ def do_query(query, outfile='-', ensembl_version=None):
     if response.text:
         out = stdout if outfile == '-' else open(outfile, 'w')
         out.write(response.text)
-        if outfile == '-': out.close()
+        if outfile != '-': out.close()
     else:
         logger.error("No content. Status code: %d", response.status_code)
 
@@ -94,14 +104,15 @@ if __name__=='__main__':
     parser.add_argument('queryfile', nargs='?')
     parser.add_argument('-o', '--outfile', default='-')
     parser.add_argument('-e', '--ensembl-version')
-    parser.add_argument('-F', '--formatter', choices=['TSV', 'FASTA'], default='TSV')
-    parser.add_argument('-H', '--header', type=int, choices=[0, 1], default=0)
-    parser.add_argument('-u', '--uniqueRows', type=int, choices=[0, 1], default=0)
-    parser.add_argument('-c', '--count', default='')
-    parser.add_argument('-d', '--dataset', default='hsapiens_gene_ensembl')
-    parser.add_argument('-f', '--filters', action='append',
+    qgroup = parser.add_argument_group('Query arguments', description='When no queryfile is given.')
+    qgroup.add_argument('-F', '--formatter', choices=['TSV', 'FASTA'], default='TSV')
+    qgroup.add_argument('-H', '--header', type=int, choices=[0, 1], default=0)
+    qgroup.add_argument('-u', '--uniqueRows', type=int, choices=[0, 1], default=0)
+    qgroup.add_argument('-c', '--count', default='')
+    qgroup.add_argument('-d', '--dataset', default='hsapiens_gene_ensembl')
+    qgroup.add_argument('-f', '--filters', action='append',
                         help='syntax: "<name>=<value>"')
-    parser.add_argument('-a', '--attributes', nargs='+')
+    qgroup.add_argument('-a', '--attributes', nargs='+')
 
     args = parser.parse_args()
     main(**vars(args))

@@ -20,6 +20,7 @@ config.setdefault('subtreedir', 'subtreesGoodQualO2')
 config.setdefault('ancestor', 'Simiiformes')
 config.setdefault('chainlength', 50000000)
 config.setdefault('align', 'genes')
+config.setdefault('beast_opts', '-overwrite -seed 1')
 
 def generate_targets(wildcards):
     align_suffix = '_' + config['align'] + '.fa'
@@ -70,8 +71,10 @@ rule beast:
         log='{subgenetree}_{align}_{beastparam}.log',
         stdout='{subgenetree}_{align}_{beastparam}.stdout'
     benchmark: '{subgenetree}_{align}_{beastparam}.benchmark.tsv'
+    params:
+        beast_opts=config['beast_opts']
     shell:
-        'beast -working -overwrite -beagle -seed 1 {input} >{log.stdout}'
+        'beast -working -beagle {params.beast_opts} {input} >{log.stdout}'
 #TODO:
 #add checkpoint to see if beastgen was changed, then 'beast -overwrite', 
 #else 'beast -resume'
