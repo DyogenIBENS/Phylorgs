@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 ENSEMBL_VERSION = max(GENE2SP.keys())
-ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9 _.-]+)(ENS|$)')  #WARNING, introducing space here
+ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9 _.-]+?)(ENS|$)')  #WARNING, introducing space here
+#TODO: a test suite for each time new labelling format are introduced, to check backward compat.
 
 def ls(array):
     return str(array).replace('\n', '')
@@ -453,11 +454,13 @@ def bound_average(fulltree, calibration, todate=isdup,
                 Takes 2 params: (node, subtree).
                 By default: check whether node is a duplication.
       - calib_selecter: the entries of `calibration`. Typically `taxon`.
-                   This is a node field to search, or the attr from `node_attr_getter`.
+                   This is a node field to search, or the attr from `node_info`.
       - node_info: paired list of functions retrieving additional info
                     (ex: ("taxon", get_taxon). Tuple of length 1 will just use `getattr`)
+                    (a first time visiting the node, i.e. pre-processing)
       - node_feature_setter: can be used to set new features, possibly based on other parts
                  of the tree (arguments: node, subtree)
+                 (post-processing)
     """
     # BEFORE 12/06/19
     #rec_rootward = rec_average
@@ -470,7 +473,7 @@ def bound_average(fulltree, calibration, todate=isdup,
     calibration[None] = np.NaN  # When select_calib_id returns None
 
     node_info = [] if node_info is None \
-                else [(getinfo[0], lambda node: getattr(node, attr, None))
+                else [(getinfo[0], lambda node: getattr(node, getinfo[0], None))
                       if len(getinfo)==1 else getinfo
                       for getinfo in node_info]
     if node_feature_setter is None:
@@ -519,7 +522,7 @@ def bound_average(fulltree, calibration, todate=isdup,
         #        err.args += ("Node: %r (is_root: %s)" % (node, node.is_root()),)
         #        raise
         if node.is_leaf():
-            node.add_feature('cal' ,1)
+            node.add_feature('cal', 1)
             
             leaf_age = calibration.get(select_calib_id(node), 0)
 
@@ -532,11 +535,13 @@ def bound_average(fulltree, calibration, todate=isdup,
                                'cal_ages': np.array([leaf_age]),
                                'cal_paths': measures_zeros,
                                'cal_leaves': np.array([1]), # number of leaves below the next calibrated nodes
-                               'leaves': 1}) # number of descendant leaves
+                               'leaves': 1}                 # number of descendant leaves
+                               )
             #ages[scname] = 0
             ages.append([scname] + branch_measures.tolist() +
                         [leaf_age] * n_measures +
                         [np.NaN] * n_measures +
+                        ([""] * n_measures if fix_conflict_ages else []) +
                         [1,
                          getattr(node.up, 'name', None)] +
                         [subtree[scname][attr] for attr,_ in node_info] +
@@ -558,7 +563,6 @@ def bound_average(fulltree, calibration, todate=isdup,
             #rec_average(node, subtree, measures, weight_key='ncal')
 
             subtree[scname]['p_clock'] = clock_test(node, subtree, measures, unweighted)
-
             if todate(node, subtree):
                 # it is uncalibrated:
                 node.add_feature('cal', 0)
@@ -578,6 +582,7 @@ def bound_average(fulltree, calibration, todate=isdup,
                 ages.append([scname] + branch_measures.tolist() +
                             [node_age] * n_measures +
                             list(subtree[scname]['p_clock'].flat) +
+                            ([""] * n_measures if fix_conflict_ages else []) +
                             [1, # calibrated
                              getattr(node.up, 'name', None)] +
                             [subtree[scname][attr] for attr,_ in node_info] +
@@ -668,9 +673,10 @@ def bound_average(fulltree, calibration, todate=isdup,
 
                             for i,m in enumerate(measures):
                                 if too_recent[i]:
-                                    node.add_feature('fixed_age_%s' % m, -1)
+                                    nextnode.add_feature('fixed_age_%s' % m, -1)
                                 if too_old[i]:
-                                    node.add_feature('fixed_age_%s' % m, 1)
+                                    nextnode.add_feature('fixed_age_%s' % m, 1)
+                            subtree[nextnode.name]['fixed_age'] = (-1)*too_recent + 1*too_old
 
                         subtree[nextnode.name]['age'] = age
                         logger.debug("    -> Shape of age %s", age.shape)
@@ -679,6 +685,7 @@ def bound_average(fulltree, calibration, todate=isdup,
                         ages.append([nextnode.name] + nextnode_measures +
                                     list(age.flat) +
                                     list(subtree[nextnode.name]['p_clock'].flat) +
+                                    list(subtree[nextnode.name].get('fixed_age', [])) +
                                     [0, #dated
                                      nextnode.up.name] +
                                     [subtree[nextnode.name][attr]
@@ -850,7 +857,7 @@ Example to date all internal nodes except a calibrated speciation:
                          'different calibrations [%(default)s]')
     gr.add_argument('-F', '--nofix-conflicts', dest='fix_conflict_ages',
                     action='store_false',
-                    help='Do not constrain estimates within calibration boundaries.')
+                    help='Do not force children to be younger than parent.')
     gr.add_argument('-k', '--keeproot', action='store_true',
                     help="Date the nodes immediately following the root " \
                          "(not recommended).")
@@ -908,10 +915,12 @@ Example to date all internal nodes except a calibrated speciation:
         for row in csvreader:
             calib[row[namecol]] = float(row[col])
 
-    header = ['name'] + ['%s_%s' %(s,m) for s in ('branch', 'age', 'p_clock')
-                         for m in measures] + \
-             ['calibrated', 'parent', 'taxon', 'is_outgroup', 'type',
-              'root', 'subgenetree']
+    stats = ('branch', 'age', 'p_clock')
+    if args.fix_conflict_ages:
+        stats += ('fixed_age',)
+    header = ['name'] + ['%s_%s' %(s,m) for s in stats for m in measures] + \
+             ['calibrated', 'parent', 'taxon', 'is_outgroup'] + \
+             ['type', 'root', 'subgenetree']
     if not args.totree:
         print('\t'.join(header))
 
@@ -922,6 +931,7 @@ Example to date all internal nodes except a calibrated speciation:
         tree.add_features(dirname=op.dirname(args.treefile),
                           basename=op.basename(args.treefile))
 
+        node_info = [('taxon', this_get_taxon), ('is_outgroup', is_outgroup)]
         ages, subtrees = bound_average(tree, calib, todate,
                                        measures,
                                        args.unweighted,
@@ -930,8 +940,7 @@ Example to date all internal nodes except a calibrated speciation:
                                        fix_conflict_ages=args.fix_conflict_ages,
                                        keeproot=args.keeproot,
                                        calib_selecter='taxon',
-                                       node_info=[('taxon', this_get_taxon),
-                                                  ('is_outgroup', is_outgroup)],
+                                       node_info=node_info,
                                        node_feature_setter=[('type', get_eventtype)],
                                        dataset_fmt=args.dataset_fmt)
 

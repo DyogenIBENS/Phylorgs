@@ -909,6 +909,7 @@ def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_b
                                    dataset_fmt=dataset_fmt)
             subtrees = None
         else: #if CODEML_MEASURES.intersection(measures):
+            node_info = [('taxon', this_get_taxon), ('is_outgroup', is_outgroup)]
             ages, subtrees = bound_average(fulltree, phyltree.ages, todate,
                                        measures,
                                        unweighted,
@@ -917,8 +918,7 @@ def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_b
                                        fix_conflict_ages=fix_conflict_ages,
                                        keeproot=keeproot,
                                        calib_selecter='taxon',
-                                       node_info=[('taxon', this_get_taxon),
-                                                  ('is_outgroup', is_outgroup)],
+                                       node_info=node_info,
                                        node_feature_setter=[('type', get_eventtype)],
                                        dataset_fmt=dataset_fmt)
 
@@ -1021,9 +1021,11 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
             logger.debug('CODEML_MEASURES: %s', CODEML_MEASURES)
             logger.debug('BEAST_MEASURES: %s', BEAST_MEASURES)
             if set(measures) & CODEML_MEASURES.union(('dist',)):
+                stats = ('branch', 'age', 'p_clock')
+                if fix_conflict_ages:
+                    stats += ('fixed_age',)
                 measure_outputs = ['%s_%s' % (s,m)
-                                    for s in ('branch', 'age', 'p_clock')
-                                      for m in measures]
+                                    for s in stats for m in measures]
             elif set(measures) & BEAST_MEASURES.union(('beast:dist',)):
                 measure_outputs = []
                 for m in measures:
@@ -1033,8 +1035,8 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
                         measure_outputs.append(m)
 
             header = ['name'] + measure_outputs + \
-                     ['calibrated', 'parent', 'taxon', 'is_outgroup', 'type',
-                      'root', 'subgenetree']
+                     ['calibrated', 'parent', 'taxon', 'is_outgroup'] + \
+                     ['type', 'root', 'subgenetree']
             out.write('\t'.join(header) + '\n')
 
         for i, resultfile in enumerate(resultfiles, start=1):
@@ -1118,7 +1120,7 @@ Example to date all internal nodes except a calibrated speciation:
                          'different calibrations [%(default)s]')
     gr.add_argument('-F', '--nofix-conflicts', dest='fix_conflict_ages',
                     action='store_false',
-                    help='Do not constrain estimates within calibration boundaries.')
+                    help='Do not force children to be younger than parent.')
     gr.add_argument('-k', '--keeproot', action='store_true',
                     help="Date the nodes immediately following the root " \
                          "(not recommended).")
