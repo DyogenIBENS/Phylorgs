@@ -886,7 +886,8 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     param: edge_colors dict-like object with keys being the nodes, and values ~~a color string~~
             a scalar value mapped to a color using a cmap.
     param: add_edge_axes can be None, "top", or "middle".
-    param: triangles: taxa to be represented as triangles. Tree need to be collapsed *before*.
+    param: collapsed: taxa to be represented as triangles. Tree need to be collapsed *before*.
+           NOTE: display the triangle ONLY IF the leaf node is the single child of its parent node.
     param: zero_weight_children: list of nodes that do not shift the y-position of the parent
             (ie. the parent position is only determined by the other children)
     param: edge_styles: dictionary of node to linestyle string
@@ -908,10 +909,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
 
     if edge_colors is not None:
         assert not isinstance(edge_colors, pd.Series) or not edge_colors.index.has_duplicates
-        extend = 1.1
-        edge_range = edge_colors.max() - edge_colors.min()
-        #edge_norm = mpl.colors.Normalize(edge_colors.max() - extend*edge_range,
-        #                            edge_colors.min() + extend*edge_range)
+        #USE the **kwargs instead to provide norm=...
     
     if collapsed is None:
         collapsed = []
@@ -1078,7 +1076,7 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
             # Is this leaf ancient?
             if abs(child_coords[node].x - present) > 0:
                 extended_x.extend((present, child_coords[node].x, None))
-                extended_y.extend((leafloc, leafloc, None))
+                extended_y.extend((child_coords[node].y, child_coords[node].y, None))
             if node in collapsed:
                 leafloc += triangle_ewidth * 0.5 * leafstep
             leafloc += leafstep # if not constant_anc_space
@@ -1157,6 +1155,8 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
                                          child_coords[ch].y + shift,
                                          chdist,
                                          1]))  # Might break with the new X-axis orientation.
+                if ch in collapsed:
+                    logger.warning('Collapsed node %r not displayed as triangle, because not a single child. Add an intermediate node to display it.', ch)
     if rootdist > 0:
         #xy += [(0, -rootdist),
         #       (nodecoord.y, nodecoord.y)]
@@ -1179,30 +1179,34 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
     #if edge_colors is None:
     #    # or not args[0][0] in 'bgrcmykw'):
     #    edge_cmap = None
-    line_color = kwargs.pop('color', mpl.rcParams['text.color'])
+    triang_colors = line_color = kwargs.pop('color', mpl.rcParams['text.color'])
     if edge_colors is not None:
+        edge_norm = kwargs.pop('norm', mpl.colors.Normalize(edge_colors.min(), edge_colors.max()))
         edge_cmap = plt.get_cmap(edge_cmap)
-        # lines.set_array performs automatic normalisation. Undesirable.
-        line_color = [(edge_cmap._rgba_bad if np.isnan(v) else edge_cmap(v)) for v in line_edge_values]
-    #else:
-    #    line_color = None
+        # lines.set_array performs automatic normalisation. Undesirable for integer/categorical values.
+        # but necessary to apply a colorbar
+        line_color = [(edge_cmap._rgba_bad if np.isnan(v) else edge_cmap(edge_norm(v))) for v in line_edge_values]
+        triang_colors = [(edge_cmap._rgba_bad if np.isnan(v) else edge_cmap(edge_norm(v))) for v in triangle_values]
+        #FIXME: attempt to use only set_array
 
-    #lines = plot(x, y, *args, **default_kwargs)
-    #lines = ax.plot(*xy, **default_kwargs)
     lines = mc.LineCollection(segments, colors=line_color, cmap=edge_cmap, linestyles=linestyles, **kwargs)#, norm=edge_norm)
-    triang_colors = [(edge_cmap._rgba_bad if np.isnan(v) else edge_cmap(v)) for v in triangle_values]
     triangle_col = mc.PolyCollection(triangles, edgecolors=triang_colors,
                                     #facecolors=[line_color],
                                     facecolors=triang_colors,
                                     #cmap=edge_cmap,
                                     **kwargs)
 
-    #if edge_colors is not None:
-    #    lines.set_array(np.array(line_edge_values))  # Value to be converted to colors.
-    #    lines.norm = edge_norm
+    if edge_colors is not None:
+        # This is necessary (only) when edge_colors values are continuous, so that a colorbar can be built.
+        lines.set_array(np.array(line_edge_values))  # Value to be converted to colors.
+        lines.norm = edge_norm
+        #FIXME: join the triangle collection with the line collection to set_array.
+        #       Don't know how to preserve the path properties that draw lines as lines and polygons as polygons in a single
+        #       PathCollection yet.
+        #triangle_col.set_array(np.array(triangle_values))
+        #triangle_col.norm = edge_norm
 
         #print(triangle_col.get_array(), triangle_col.get_cmap())
-        #triangle_col.set_array(np.array(triangle_values))  # Value to be converted to colors.
         #print('Triangles:',
         #      triangle_col.get_cmap().name +' '+ str(triangle_col.get_cmap()),
         #      '%s %s' % (triangle_col.get_array(), triangle_col.get_array().dtype),
