@@ -106,6 +106,7 @@ def print_git_state(module=None, modulepath=None, sep='\n', file=None, timeout=1
 def redisplay():
     """Reset the correct DISPLAY environment variable, when using `tmux` over
     `ssh`."""
+    orig_display = os.environ['DISPLAY']
     correct_localhost = subprocess.check_output(['tmux', 'show-env', 'DISPLAY'])\
                             .decode()\
                             .replace('DISPLAY=', '')\
@@ -115,7 +116,7 @@ def redisplay():
         del os.environ['DISPLAY']
     else:
         os.environ['DISPLAY'] = correct_localhost
-    print('%s -> %s' % (os.environ['DISPLAY'], correct_localhost))
+    print('%s -> %s' % (orig_display, correct_localhost))
 
 
 if __name__=='__main__':

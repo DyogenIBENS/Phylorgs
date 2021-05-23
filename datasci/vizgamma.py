@@ -42,30 +42,73 @@ def print_gamma_density(alpha=2, beta=0.5, scale=None, loc=0):
     x, y = gamma_density(alpha, beta, scale, loc, ndots)
 
 
+def density(distrib, ndots=250):
+    """Accepts a frozen distribution only"""
+    xmin, xmax = distrib.a, distrib.b
+    # Go to 98%
+    if np.isinf(distrib.b):
+        xmax = distrib.isf(0.02)
+    if np.isinf(distrib.a):
+        xmin = distrib.ppf(0.02)
+    x = np.linspace(xmin, xmax, ndots)
+
+    return x, distrib.pdf(x)
+
+
 def main():
     parser = ap.ArgumentParser(description=__doc__)
-    parser.add_argument('alpha', type=float)
-    parser.add_argument('beta', type=float)
-    parser.add_argument('outfile', nargs='?')
-    parser.add_argument('-l', '--loc', default=0, type=float)
+    parent = ap.ArgumentParser(add_help=False)
+    parent.add_argument('-o', '--outfile')
+    parent.add_argument('-l', '--loc', default=0, type=float)
+
+    subp = parser.add_subparsers(title='command', dest='command')
+
+    helpp = subp.add_parser('help', help='print the distrib docstring from scipy.stat')
+    helpp.add_argument('distribname')
+
+    gammap = subp.add_parser('gamma', parents=[parent])
+    gammap.add_argument('alpha', type=float)
+    gammap.add_argument('beta', type=float)
+
+    generalp = subp.add_parser('general', parents=[parent])
+    generalp.add_argument('distribname')
+    generalp.add_argument('params', nargs='*')
+    generalp.add_argument('-s', '--shape', default=1, type=float)
 
     args = parser.parse_args()
+
+    if args.command == 'help':
+        print(getattr(st, args.distribname).__doc__)
+        return
+    elif args.command == 'gamma':
+        alpha = args.alpha
+        beta = args.beta
+        distribname = 'gamma'
+        params = [args.alpha, args.loc, 1. / args.beta]
+    else:
+        distribname = args.distribname
+        params = [float(x) for x in args.params]
+        params += [args.loc, args.shape]
+
+    # Freeze to specific parametrisation
+    distrib = getattr(st, distribname)(*params)
 
     if not args.outfile:
         # Use a graphical interface
         plt.switch_backend('TkAgg')
 
-    alpha = args.alpha
-    beta = args.beta
-    loc = args.loc
-
-    lines = plot_gamma_density(alpha, beta, loc=loc)
+    lines = plt.plot(*density(distrib), '-')
     ax = plt.gca()
     xmin, xmax = ax.get_xlim()
     ymin, ymax = ax.get_ylim()
-    ax.text(xmax, ymax, 'E = %g' % expectation_gamma_beta(alpha, beta, loc),
-            va='top', ha='right')
-    ax.set_ylabel(r'Gamma(\alpha\,=%g; \beta\,=%g)' % (alpha, beta))
+    ax.text(xmax, ymax, 'E = %g' % distrib.mean(), va='top', ha='right')
+    if args.command == 'gamma':
+        #ax.text(xmax, ymax, 'E = %g' % expectation_gamma_beta(alpha, beta, loc),
+        #        va='top', ha='right')
+        ax.set_ylabel(r'$\Gamma(\alpha\,=%g; \beta\,=%g)$' % (alpha, beta))
+    else:
+        ax.set_ylabel(r'$%s(%s, s=%g, loc=%g)$' % (distribname, ', '.join(args.params), args.shape, args.loc))
+
     plt.show(block=True)
 
 
