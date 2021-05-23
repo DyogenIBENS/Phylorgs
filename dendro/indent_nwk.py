@@ -15,7 +15,8 @@ PROTECT = {'[&&NHX:': ']',
            '[&': ']', #'{': '}', # Beast nexus format
            '"': '"',
            "'": "'"}
-RE_STRUCT = re.compile(r'\s*(?:,|\(|\)|' + r'|'.join(re.escape(s) for s in PROTECT) + r')\s*')
+IGNORE = re.compile('\033\[\d\d?(;\d+)*m')  # Shell escape codes (colored terminal output).
+RE_STRUCT = re.compile(r'\s*(?:' + IGNORE.pattern + r'|,|\(|\)|' + r'|'.join(re.escape(s) for s in PROTECT) + r'|;)\s*')
 INDENT = '  '
 
 
@@ -33,9 +34,13 @@ def go_out(nindent, indent):
 def go_same(nindent, indent):
     return nindent, ',\n' + nindent*indent
 
+def go_quit(nindent, indent):
+    return 0, ';\n'
+
 STRUCT_DO = {',': go_same,
              '(': go_in,
-             ')': go_out}
+             ')': go_out,
+             ';': go_quit}
 
 
 def main(treefiles, inplace=False, indent=INDENT):
@@ -43,14 +48,10 @@ def main(treefiles, inplace=False, indent=INDENT):
         treefiles = [stdin]
     for treefile in treefiles:
         if treefile is stdin:
-            all_treetxt = stdin.read()
+            treetxt = stdin.read().rstrip(' \t\n\r')
         else:
             with open(treefile) as inputtree:
-                all_treetxt = inputtree.read()
-
-        all_trees = all_treetxt.rstrip('; \t\n\r').split(';')
-        #print(len(all_trees))
-        #print(len(all_trees), all_trees)
+                treetxt = inputtree.read().rstrip(' \t\n\r')
 
         if inplace:
             out = StringIO()  # Buffer the output in-memory, in case of error.
@@ -58,33 +59,38 @@ def main(treefiles, inplace=False, indent=INDENT):
             out = stdout
         
         try:
-            for treetxt in all_trees:
-                # Split text by semantic units: nodes, commas, parentheses.
-                nindent = 0
-                #prev_pos = 0
-                #for m in RE_STRUCT.finditer(treetxt):
+            # Split text by semantic units: nodes, commas, parentheses.
+            nindent = 0
+            #prev_pos = 0
+            #for m in RE_STRUCT.finditer(treetxt):
+            structmatch = RE_STRUCT.search(treetxt)
+            while structmatch:
+                struct = structmatch.group().strip()
+                start,end = structmatch.start(), structmatch.end()
+                if struct in STRUCT_DO:
+                    nindent, newstruct = STRUCT_DO[struct](nindent, indent)
+
+                    out.write(treetxt[:start].rstrip().lstrip() + newstruct)
+
+                    treetxt = treetxt[end:]
+                elif struct in PROTECT:
+                    #out.write(treetxt[:end])
+                    #treetxt = treetxt[structmatch.end():]
+                    closing_char = PROTECT[struct]
+                    try:
+                        closing_pos = treetxt.index(closing_char, end)
+                    except ValueError as err:
+                        err.args = ('Missing closing structure for %r' % struct,)
+                        raise
+                    out.write(treetxt[:(closing_pos+1)])
+                    treetxt = treetxt[(closing_pos+1):]
+                elif IGNORE.match(struct):
+                    out.write(treetxt[:end])
+                    treetxt = treetxt[end:]
+                else:
+                    raise ValueError("Invalid structure character %r" % struct)
+
                 structmatch = RE_STRUCT.search(treetxt)
-                while structmatch:
-                    struct = structmatch.group().strip()
-                    start,end = structmatch.start(), structmatch.end()
-                    if struct in STRUCT_DO:
-                        nindent, newstruct = STRUCT_DO[struct](nindent, indent)
-
-                        out.write(treetxt[:start].rstrip().lstrip() + newstruct)
-
-                        treetxt = treetxt[end:]
-                    elif struct in PROTECT:
-                        #out.write(treetxt[:end])
-                        #treetxt = treetxt[structmatch.end():]
-                        closing_char = PROTECT[struct]
-                        closing_pos = treetxt.find(closing_char, end)
-                        out.write(treetxt[:(closing_pos+1)])
-                        treetxt = treetxt[(closing_pos+1):]
-                    else:
-                        raise ValueError("Invalid structure character %r" % struct)
-
-                    structmatch = RE_STRUCT.search(treetxt)
-                out.write(treetxt + ';\n')
             if inplace:
                 inputtree.close()
                 with open(inputtree.name, 'w') as realout:
