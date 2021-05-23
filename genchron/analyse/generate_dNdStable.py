@@ -30,8 +30,6 @@ np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
-ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9_.-]+)(ENS|$)')
-# ~~> genomicustools.identify
 
 BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
                      for s in ('', '_median', '_95%_HPD', '_range')).union(('posterior',))
@@ -151,6 +149,7 @@ def load_fulltree(resultfile, replace_nwk='.mlc', replace_by='.nwk'):
     Catch errors (file does not exist / wrong format)"""
     nwkfile = re.sub(replace_nwk, replace_by, resultfile)
     rootname = os.path.splitext(resultfile)[0]
+    tree_alt_name = os.path.basename(re.sub(replace_nwk, '', resultfile))
     try:
         fulltree = ete3.Tree(nwkfile, format=1)
     except ete3.parser.newick.NewickError as e:
@@ -162,7 +161,8 @@ def load_fulltree(resultfile, replace_nwk='.mlc', replace_by='.nwk'):
         sys.exit(2)
 
     fulltree.add_features(basename=os.path.basename(rootname),
-                          dirname=os.path.dirname(rootname))
+                          dirname=os.path.dirname(rootname),
+                          tree_alt_name=tree_alt_name)
     return fulltree
 
 
@@ -233,15 +233,23 @@ def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'
         for srcnode, srcclade in srcleaf_sets.items():
             # Find the first source clade containing or equal to the target clade.
             if srcclade >= clade:
+                logger.info('Adding features from %r dist=%.2f -> %r', srcnode.name, srcnode.dist, node.name)
                 newfeatures = dict((ft[0], getattr(srcnode, ft[1], defaults.get(ft[0])))
                                      if isinstance(ft, tuple)
                                      else (ft, getattr(srcnode, ft, defaults.get(ft)))
                                      for ft in update_features)
-                # TODO: convert beast string ranges
+                logger.debug('srcnode features = %s; updated features = %s; target node features = %s', srcnode.features, update_features, node.features)
                 for rawfeature, convert in reassigns.items():
-                    newfeatures.update(**convert(newfeatures.pop(rawfeature), rawfeature))
+                    try:
+                        newfeatures.update(
+                                **convert(newfeatures.pop(rawfeature,
+                                                          getattr(srcnode, rawfeature)),
+                                          rawfeature)
+                                )
+                    except AttributeError:
+                        if not srcnode.is_root():
+                            raise
 
-                logger.debug('Adding features %r -> %r', srcnode.name, node.name)
                 node.add_features(**newfeatures)
                 if srcclade > clade:
                     logger.warning('Non exact clade match: %r != %r',
@@ -809,7 +817,7 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                     break
     elif BEAST_MEASURES.union(('beast:dist',)).intersection(measures):
         try:
-            tree = ete3.Tree(resultfile)  # consensus tree from Beast + TreeAnnotator.
+            tree = ete3.Tree(resultfile, format=1)  # consensus tree from Beast + TreeAnnotator.
         except ete3.parser.newick.NewickError as e:
             if os.path.exists(resultfile):
                 e.args = ("Malformed newick tree structure in %r" % resultfile,)
@@ -947,12 +955,17 @@ def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_b
 def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
          phyltreefile=PHYLTREEFILE, measures=['t', 'dN', 'dS', 'dist'],
          unweighted=False, original_leading_paths=False,
-         correct_unequal_calibs='default', fix_conflict_ages=True, verbose=False,
+         correct_unequal_calibs='default', fix_conflict_ages=True, verbose=0,
          show=None, replace_nwk='.mlc', replace_by='.nwk', ignore_errors=False,
          saveas='ages', todate='isdup', keeproot=False, dataset_fmt='{basename}'):
     nb_results = len(resultfiles)
     
-    loglevel = logging.DEBUG if verbose else logging.WARNING
+    if verbose > 1:
+        loglevel = logging.DEBUG
+    elif verbose > 0:
+        loglevel = logging.INFO
+    else:
+        loglevel = logging.WARNING
     logger.setLevel(loglevel)
     mpllogger.setLevel(loglevel)
 
@@ -1030,7 +1043,7 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
                 measure_outputs = []
                 for m in measures:
                     if m in BEAST_REASSIGNS:
-                        measure_outputs.extend((m+'_low', m+'up'))
+                        measure_outputs.extend((m+'_low', m+'_up'))
                     else:
                         measure_outputs.append(m)
 
@@ -1146,7 +1159,8 @@ Example to date all internal nodes except a calibrated speciation:
     go.add_argument('-f', '--dataset-fmt', default='{basename}',
                     help=('Format for the `subgenetree` column. Available '
                           'keys: basename,dirname,ndataset (relative to '
-                          'resultfile). [%(default)s]'))
+                          'resultfile) or tree_alt_name (after replace_nwk '
+                          'removal). [%(default)s]'))
     go.add_argument('-t', '--tofulltree', dest='saveas', action='store_const',
                     const='fulltree', default='ages',
                     help='Do not compute the table, but save trees in one'\
@@ -1165,7 +1179,7 @@ Example to date all internal nodes except a calibrated speciation:
             help=('"gui": start the interactive ete3 tree browser\n'
                   '"notebook": create global var FULLTREE and TS for rendering\n'
                   'other value: save to file'))
-    gd.add_argument('-v', '--verbose', action='store_true', 
+    gd.add_argument('-v', '--verbose', action='count', default=0,
                     help='print progression along tree')
 
     args = parser.parse_args()

@@ -24,6 +24,7 @@ The Bio.Phylo.convert doesn't properly convert the comments from BEAST Nexus fil
 
 """
 
+from sys import stdin, stdout
 import re
 from collections import OrderedDict
 from Bio import Phylo
@@ -50,6 +51,10 @@ def beast_comment_parser(text):
             end = text.find('}')
             value = [float(x) for x in text[1:end].split(',')]
             text = text[(end+1):].lstrip(',')
+        elif text.startswith('"{'):
+            end = text.find('}"')
+            value = [float(x) for x in text[2:end].split(',')]
+            text = text[(end+2):].lstrip(',')
         else:
             try:
                 value, text = text.split(',', 1)
@@ -82,16 +87,25 @@ def NHX_comment_formatter(variables: dict):
 
 def nexus2nhx(infile, outfile):
     """Designed to work with Beast/treeannotator output"""
-    with open(outfile, 'w') as out:
+    out = stdout if outfile is stdout else open(outfile, 'w') 
+    try:
         for tree in Phylo.parse(infile, 'nexus'):
+            # Unfortunately, Bio.Phylo [version 1.73] parses node numbers as Support values, 
+            # which is not intended by the format (e.g. Beast/Treeannotator output tree)
             for node in tree.get_terminals() + tree.get_nonterminals():
-                #if not node.is_terminal(): # For lsd2 output
-                #    node.name = node.confidence
-                #    node.confidence = None
+                if not node.is_terminal(): # For lsd2/Treeannotator output
+                    try:
+                        node.name = '%d' % node.confidence
+                    except TypeError as err:
+                        node.name = node.confidence  # confidence is not a integer, put it into the name
+                    node.confidence = None
                 node.comment = NHX_comment_formatter(
                                     beast_comment_parser(node.comment))
                 logger.debug('node %r. conf=%r length=%r comment=%r', node.name, node.confidence, node.branch_length, node.comment)
             Phylo.write(tree, out, 'newick')
+    finally:
+        if outfile is not stdout:
+            out.close()
 
 ## TODO: tests:
 # 1. Check if the resulting newick can be parsed by Ete3/Biopython/Newick-utils.
@@ -191,15 +205,14 @@ def nhx2bayestraits(infile, outfile, **nwk_kwargs):
 # plottree(nx2.trees[0], bionexus_methods.get_items, bionexus_methods.get_label, nx2.trees[0].node(nx2.trees[0].root))
 
 def main():
-    from sys import stdin, stdout
     import argparse as ap
     logging.basicConfig()
     parser = ap.ArgumentParser(__doc__)
+    parser.add_argument('-d', '--debug', action='store_true', help='set logging level to DEBUG')
     
     common_parser = ap.ArgumentParser(add_help=False)
     common_parser.add_argument('infile', nargs='?', default=stdin, help='[stdin]')
     common_parser.add_argument('-o', '--outfile', default=stdout, help='[stdout]')
-    common_parser.add_argument('-d', '--debug', action='store_true', help='set logging level to DEBUG')
 
     subp = parser.add_subparsers(dest='command')
     subp.add_parser('nexus2nhx', help='Tested on Beast output', parents=[common_parser])

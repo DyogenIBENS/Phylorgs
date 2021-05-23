@@ -344,7 +344,8 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't'], compute
     beast_renames = {'height': 'age_beastS',
                      'height_median': 'age_beastSmedian',
                      'length': 'branch_beastS',
-                     'length_median': 'branch_beastSmedian'}
+                     'length_median': 'branch_beastSmedian',
+                     'beast:dist': 'dist'}
 
     ages = pd.read_csv(ages_file, sep='\t', index_col=0)\
             .rename(columns=lambda n: n.replace('.', '_'))\

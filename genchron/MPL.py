@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 ENSEMBL_VERSION = max(GENE2SP.keys())
 ANCGENE2SP = re.compile(r'([A-Z][A-Za-z0-9 _.-]+?)(ENS|$)')  #WARNING, introducing space here
+# ~~> genomicustools.identify
 #TODO: a test suite for each time new labelling format are introduced, to check backward compat.
 
 def ls(array):

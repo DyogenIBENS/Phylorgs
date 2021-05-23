@@ -11,10 +11,11 @@ from io import StringIO
 # - matches structural tokens: parentheses and comma;
 # - includes white spaces before/after (stripped later);
 # - matches delimiters to be jumped over: quotes and comments brackets.
-RE_STRUCT = re.compile(r'\s*(?:,|\(|\)|\[\&\&NHX:|\'|\")\s*')
 PROTECT = {'[&&NHX:': ']', 
+           '[&': ']', #'{': '}', # Beast nexus format
            '"': '"',
            "'": "'"}
+RE_STRUCT = re.compile(r'\s*(?:,|\(|\)|' + r'|'.join(re.escape(s) for s in PROTECT) + r')\s*')
 INDENT = '  '
 
 
