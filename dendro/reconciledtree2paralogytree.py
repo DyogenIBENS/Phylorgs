@@ -19,8 +19,8 @@ import ete3
 import os.path as op
 
 from LibsDyogen import myPhylTree
-from genetree_drawer import get_taxon, get_taxon_treebest, infer_gene_event
-#from dendro.reconciled
+from dendro.reconciled import get_taxon, get_taxon_treebest, infer_gene_event
+
 
 ENSEMBL_VERSION = 85
 PHYLTREEFILE = op.expanduser("~/GENOMICUS{0}/PhylTree.Ensembl.{0}.conf")

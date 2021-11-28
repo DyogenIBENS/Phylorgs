@@ -93,14 +93,14 @@ def parse_ALEoutput(aleoutputfile):
 
 #TODO: quickfix, move this out.
 from genomicustools import identify
-init_match = {'Scere': 'Saccharomyces cerevisiae', 
+INIT_MATCH = {'Scere': 'Saccharomyces cerevisiae', 
               'Celeg': 'Caenorhabditis elegans',
               'Dmela': 'Drosophila melanogaster',
               'Csav': 'Ciona savignyi',
               'Hsa': 'Homo sapiens'}
-init_match.update({gid[3:6].capitalize(): sp
+INIT_MATCH.update({gid[3:6].capitalize(): sp
                    for sp,gid in identify.SP2GENEID[93].items()
-                   if sp not in init_match.values()})
+                   if sp not in INIT_MATCH.values()})
 
 def ale_species_numbers_2_names(ale_Stree, labelled_tree, init_match=None):
     """Numbers correspond to time indices and speciations.
@@ -258,7 +258,7 @@ def all_rec_to_treebest(ale_rec_file, treebest_outfile, phyltreefile=None):
     Stree = ete3.Tree(aleout['Stree'], format=1)
     if phyltreefile:
         phyltree = ete3.Tree(phyltreefile, format=1)
-        numbers_to_names = ale_species_numbers_2_names(Stree, phyltree, init_match)
+        numbers_to_names = ale_species_numbers_2_names(Stree, phyltree, INIT_MATCH)
     else:
         numbers_to_names = None
 

@@ -1070,7 +1070,7 @@ def run(genetrees, gene_params, outfile, genenames=False, tags="", asymmetric=Fa
     logger.debug('Will set output figsize to: %d x %d inches.', *figsize)
     gd = GenetreeDrawer(**kwargs)
     display = lambda: plt.show() # Display function for shell or notebook usage
-    if __name__=='__main__' and outfile == '-':
+    if outfile == '-':
         try:
             plt.switch_backend('Qt5Agg')
         except ImportError:
