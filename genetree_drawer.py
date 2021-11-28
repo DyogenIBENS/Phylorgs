@@ -392,8 +392,9 @@ class GenetreeDrawer(object):
         
         #print("Roots: " + ", ".join(roots))
         if self.ages:
-            lca = self.phyltree.lastCommonAncestor(list(roots.difference(("root",))))
-            self.max_age = self.phyltree.ages[lca]
+            if roots != set(("root",)):
+                lca = self.phyltree.lastCommonAncestor(list(roots.difference(("root",))))
+                self.max_age = self.phyltree.ages[lca]
             print('roots: %s; max_age: %g' % (roots, self.max_age))
 
         root = "root" if "root" in roots else self.phyltree.lastCommonAncestor(list(roots))
@@ -611,10 +612,16 @@ class GenetreeDrawer(object):
                         child_taxon, expected_children_taxa,
                         child_taxon not in expected_children_taxa)
             while child_taxon not in expected_children_taxa:
-                tmp_taxon = self.phyltree.parent[child_taxon].name
+                try:
+                    tmp_taxon = self.phyltree.parent[child_taxon].name
+                except KeyError as err:
+                    err.args += ('from child %s' % child_taxon,)
+                    logger.error('%s %s', err, phylsubtree)
+                    break
+
                 logger.info("  - get intermediate parent of %s: %s",
                             child_taxon, tmp_taxon)
-                while tmp_taxon not in phylsubtree:
+                while tmp_taxon not in set(phylsubtree).union(("root",)):
                     try:
                         tmp_taxon = self.phyltree.parent[tmp_taxon].name
                     except KeyError as err:
