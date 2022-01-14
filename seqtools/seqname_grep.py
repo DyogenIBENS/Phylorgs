@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
+"""
+Select sequences from file (e.g. fasta) based on their name.
+"""
+
+
 from sys import stdout, stdin
 import re
 import argparse
@@ -21,8 +27,14 @@ def algrep(alignment, pattern, negate=False):
     return Align.MultipleSeqAlignment(out_records)
 
 
-def main(pattern, filename, negate=False, format='fasta', outfile=stdout):
+def main(pattern, filename, negate=False, fromfile=False, format='fasta', outfile=stdout):
     #al = AlignIO.read(alignment_file, format=format)
+    if fromfile:
+        if pattern == '-':
+            pattern = '|'.join(line.rstrip() for line in stdin)
+        else:
+            with open(pattern) as f:
+                pattern = '|'.join(line.rstrip() for line in f)
     sequences = SeqIO.parse(filename, format=format)
     SeqIO.write(seqrecords_grep(sequences, pattern, negate), outfile, format)
 
@@ -34,6 +46,8 @@ if __name__ == '__main__':
                         default=stdin)
     parser.add_argument('-o', '--outfile', nargs='?', type=argparse.FileType('w'),
                         default=stdout)
+    parser.add_argument('-f', '--fromfile', action='store_true',
+                        help='Read pattern from file (one alternative per line).')
     parser.add_argument('-F', '--format', default='fasta')
     parser.add_argument('-v', '--negate', action='store_true')
     
