@@ -165,6 +165,7 @@ def main(infiles, outfile=None, fro=None, to=None):
         to = 'phylip-sequential' if to == 'evolver' else 'fasta'
         joint_out = True
         out = open(outfile, 'w')
+    #FIXME: output to Nexus requires an Alphabet to be specified for Biopython...
     else:
         try:
             outfile_n = outfile % n_al
@@ -176,6 +177,8 @@ def main(infiles, outfile=None, fro=None, to=None):
     for infile in infiles:
         if fro is None:
             fro = guess_format(infile)
+            if fro == 'phylip-sequential-relaxed':
+                fro = 'phylip-relaxed'
         if fro.startswith('evolver') or fro.startswith('multifa'):
             iterdata = split_evolver if fro.startswith('evolver') else split_multidata
             srcfmt = 'phylip-relaxed' if fro.startswith('evolver') else 'fasta'
