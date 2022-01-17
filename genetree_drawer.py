@@ -81,7 +81,7 @@ mpl.rcParams['legend.facecolor'] = '#777777'
 mpl.rcParams['legend.framealpha'] = 0.2
 #mpl.rcParams['legend.edgecolor'] = grey10
 mpl.rcParams['savefig.facecolor'] = 'none'
-mpl.rcParams['savefig.frameon'] = False  #background frame transparent
+mpl.rcParams['figure.frameon'] = False  #background frame transparent
 #mpl.rcParams['savefig.transparent'] = True # all background transparent
                                             # (including ggplot2 style)
 #mpl.style.use('ggplot')

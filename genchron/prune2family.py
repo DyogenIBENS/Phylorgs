@@ -1067,9 +1067,9 @@ def save_subtrees_process(params, catch_stdout=True):
             logger.info("Ignore %d: %r: %r", params[0], params[1], err)
             return 0, set(), get_stdout()
         else:
-            # Allow the loop to finish and compute the summary.
             logger.exception(str(err))
-            raise StopIteration()  ## NOT good as the main loop will see this as a normal return...
+            # Allow the loop to finish and compute the summary.
+            return  ## NOT good as the main loop will see this as a normal return...
 
     # return a value to let Pool.map count the number of results.
     if catch_stdout: sys.stdout = sys.__stdout__

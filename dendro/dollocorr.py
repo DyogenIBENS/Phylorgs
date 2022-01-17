@@ -49,7 +49,7 @@ def ordered_nonnull_integer_n_partition(total:int, nterms:int , minval=1):
     Each terms of the summation is ordered."""
     if nterms <= 0:
     #    yield ()
-        raise StopIteration
+        return
 
     if nterms == 1:
         yield (total,)
@@ -65,10 +65,9 @@ def integer_n_partition(total: int, nterms: int):
     if nterms <= 0:
         if total == 0:
             yield np.array([], dtype=int)
-            raise StopIteration
-        else:
-            raise StopIteration
+        #else:
             #raise ValueError("Partitioning %d in 0 terms is impossible." % total)
+        return
 
     # Select nterms-1 split locations among [1, 2, ..., total-1]
     for isplits in it.combinations_with_replacement(range(total+1), nterms-1):

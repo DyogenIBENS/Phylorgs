@@ -35,7 +35,7 @@ def recurse_birth_events(node, root_dist=0, leaf_as_death=True):
     #else:
     #    # Stop at first leaf encountered
     #    yield (root_dist, 0)
-    #    raise StopIteration
+    #    return
 
 
 def get_ordered_birth_events(tree, compact=False, leaf_as_death=True,

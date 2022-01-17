@@ -16,7 +16,7 @@ def bfw_pairs(phyltree, queue=None, closest_first=True):
         queue = [(None, phyltree.root)]
 
     if len(queue) == 0:  # terminate
-        raise StopIteration
+        return
 
     # iterate
     parent, node = queue.pop(0)
@@ -41,7 +41,7 @@ def dfw_pairs(phyltree, queue=None, closest_first=False, nosinglechild=False):
         queue = [(None, phyltree.root)]
 
     if len(queue) == 0:  # terminate
-        raise StopIteration
+        return
 
     # iterate
     parent, node = queue.pop()  # != bfw
@@ -83,7 +83,7 @@ def dfw_pairs_generalized(tree, get_children, queue=None, include_root=False):
             queue = []  # will raise Stop iteration
 
     if len(queue) == 0:  # terminate
-        raise StopIteration
+        return
 
     # iterate
     parent, node = queue.pop()  # != bfw
@@ -131,7 +131,7 @@ def bfw_descendants(phyltree, include_leaves=False, queue=None):
         queue = [phyltree.root]
 
     if len(queue) == 0:  # terminate
-        raise StopIteration
+        return
 
     # iterate
     parent = queue.pop(0)
@@ -179,7 +179,7 @@ def bfw_descendants_generalized(tree, get_children, include_leaves=False,
             queue = []  # will raise Stop iteration
 
     if len(queue) == 0:  # terminate
-        raise StopIteration
+        return
 
     # iterate
     parent = queue.pop(0)
@@ -204,7 +204,7 @@ def dfw_descendants(phyltree, closest_first=False,
         queue = [phyltree.root]
 
     if len(queue) == 0:  # terminate
-        raise StopIteration
+        return
 
     # iterate
     parent = queue.pop()  # != bfw
@@ -278,7 +278,7 @@ def dfw_descendants_generalized(tree, get_children, include_leaves=False,
             queue = []  # will raise Stop iteration
 
     if len(queue) == 0:  # terminate
-        raise StopIteration
+        return
 
     # iterate
     parent = queue.pop()  # != bfw
@@ -309,7 +309,7 @@ def dfw_lineage_generalized(tree, get_children, queue=None):
             queue = []  # will raise Stop iteration
 
     if len(queue) == 0:  # terminate
-        raise StopIteration
+        return
 
     # iterate
     prev_lineage ## TODO = queue.pop()  # != bfw
