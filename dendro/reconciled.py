@@ -34,13 +34,19 @@ ENSEMBL_VERSION = 85
 
 #def get_taxon(node: ete3.TreeNode, ancgene2sp : re._pattern_type,
 #              ensembl_version : int = ENSEMBL_VERSION):
-def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION):
+def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION, skip_seq_error=False):
     """from a gene name in my newick gene trees, find the taxon:
         either:
             - node is a leaf (e.g ENSMUSG00...)
             - node is internal (e.g Mus.musculusENSGT...)"""
     if node.is_leaf():
-        taxon = ultimate_seq2sp(node.name, ensembl_version)
+        try:
+            taxon = ultimate_seq2sp(node.name, ensembl_version)
+        except KeyError as err:
+            if skip_seq_error:
+                logger.warning(','.join(err.args))
+            else:
+                raise
     else:
         try:
             taxon = ancgene2sp.match(node.name).group(1).replace('.', ' ')

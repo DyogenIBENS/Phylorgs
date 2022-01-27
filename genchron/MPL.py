@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-from sys import stdout, stderr
+from sys import stdin, stdout, stderr
 import re
 import os.path as op
 import argparse as ap
@@ -13,7 +13,8 @@ import scipy.stats as st
 
 from dendro.parsers import parserchoice
 from dendro.converters import converterchoice
-from genomicustools.identify import convert_gene2species, GENE2SP
+from genomicustools.identify import GENE2SP
+from dendro.reconciled import get_taxon, get_taxon_treebest
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,6 +29,9 @@ def ls(array):
     return str(array).replace('\n', '')
 
 # Functions used to determine whether a node should be calibrated in `bound_average`
+def name_matches(node, pattern):
+    return re.match(pattern, node.name)
+
 #@memoize
 def true(node, subtree=None):
     return True
@@ -101,6 +105,13 @@ def any_of(tests):
         return any(test(*args, **kwargs) for test in tests)
     any_test.__name__ = '(' + '|'.join(t.__name__ for t in tests) + ')'
     return any_test
+
+
+TODATE_FUNCS = {'name': name_matches, 'n': name_matches,
+        'isdup': retrieve_isdup, 'd': retrieve_isdup,
+        'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
+        'taxon': def_is_any_taxon, 't': def_is_any_taxon,
+        'true': true, 'false': false}
 
 
 def combine_boolean_funcs(key, funcs):
@@ -559,7 +570,11 @@ def bound_average(fulltree, calibration, todate=isdup,
             #        raise
 
             # Compute the temporary measure of the node.
-            rec_rootward(node, subtree, unweighted=unweighted)
+            try:
+                rec_rootward(node, subtree, unweighted=unweighted)
+            except BaseException as err:
+                err.args += ('At node %r' % node.name,)
+                raise
             #rec_rootward(node, subtree, 'total_m')
             #rec_average(node, subtree, measures, weight_key='ncal')
 
@@ -621,7 +636,6 @@ def bound_average(fulltree, calibration, todate=isdup,
 
                 # Dynamic list during the climbing:
                 # store (node, measures for this node's branch)
-                # TODO: deque
                 nextnodes = deque([(ch,subtree[ch.name]['br_m'])
                                    for ch in node.children])
                 while nextnodes:
@@ -789,16 +803,27 @@ def tabulate_ages_from_tree(fulltree, todate=true,
     return ages
 
 
-def get_taxon(node, ensembl_version=ENSEMBL_VERSION):
-    if node.is_leaf():
+def disambiguate_nodelabels(tree):
+    dups = {}
+    for node in tree.traverse('preorder'):
         try:
-            return convert_gene2species(node.name, ensembl_version)
-        except KeyError as err:
-            logger.warning(','.join(err.args))
-    try:
-        return ANCGENE2SP.match(node.name).group(1).replace('.', ' ')
-    except AttributeError:
-        raise ValueError("Can not match species name in %r" % node.name)
+            dups[node.name] += 1
+            node.name += '.' + str(dups[node.name])
+        except KeyError:
+            dups[node.name] = 0
+    return dups
+
+
+#def get_taxon(node, ancgene2sp=ANCGENE2SP, ensembl_version=ENSEMBL_VERSION):
+#    if node.is_leaf():
+#        try:
+#            return convert_gene2species(node.name, ensembl_version)
+#        except KeyError as err:
+#            logger.warning(','.join(err.args))
+#    try:
+#        return ancgene2sp.match(node.name).group(1).replace('.', ' ')
+#    except AttributeError:
+#        raise ValueError("Can not match species name in %r" % node.name)
 
 
 def save_ages(ages, opened_outfile):
@@ -815,32 +840,12 @@ def save_mpl_tree(tree, anc_ages, opened_outfile):
     opened_outfile.write(tree.write(format=1, format_root_node=True) + '\n')
 
 
-def main():
-    logging.basicConfig(format='%(levelname)s:%(funcName)-16s %(message)s')
-    parser = ap.ArgumentParser(description=__doc__)
-    parser.add_argument('treefile')
-    parser.add_argument('calibfile', #nargs='?',
-                        help='column file')
-    #parser.add_argument('-p', '--phyltreefile')
-    parser.add_argument('-p', '--parser', default='ete3_f1')
-    parser.add_argument('-D', '--delimiter', default='\t',
-                        help='Column separator in the calibfile [%(default)r]')
-    parser.add_argument('-a', '--ages-column', default=1,
-                        help='Column containing the ages [%(default)r]')
-    parser.add_argument('-H', '--header-row', action='store_true',
-                        help='Whether to discard one header row.')
-    parser.add_argument('-m', '--measures', default='dist',
-                        help='comma separated list [%(default)s]')
-    parser.add_argument('-e', '--ensembl-version', type=int, default=ENSEMBL_VERSION)
-    parser.add_argument('-t', '--totree', action='store_true',
-                        help='Do not compute the table, but save trees in one'\
-                            ' newick file with MPL lengths as new distances.')
-
+def add_MPL_options_to_parser(parser):
     gr = parser.add_argument_group('RUN PARAMETERS')
-    
+
     gr.add_argument('-d', '--todate', default="isinternal", metavar='TESTS',
                     help=combine_boolean_funcs.__doc__ + """
-    - tests may be any of: 'isdup', 'isinternal', 'taxon'.
+    - tests may be any of: 'isdup', 'isinternal', 'taxon', 'name'.
        The 'taxon' test must be written with taxa as arguments:
            'taxon:mytaxon1,mytaxon2'.
 
@@ -862,9 +867,43 @@ Example to date all internal nodes except a calibrated speciation:
     gr.add_argument('-k', '--keeproot', action='store_true',
                     help="Date the nodes immediately following the root " \
                          "(not recommended).")
+    #gr.add_argument('--allow-uneq-ch-age', type=float, default=0,
+    #                dest='allow_unequal_children_age',
+    #                help="tolerance threshold to output the Mean Path Length "\
+    #                     "value of a node, when the next calibrated children "
+    #                     "have different ages"\
+    #                     "(Use carefully) [%(default)s].")
+    return gr
+
+
+def main():
+    logging.basicConfig(format='%(levelname)s:%(funcName)-16s %(message)s')
+    parser = ap.ArgumentParser(description=__doc__)
+    parser.add_argument('treefile', help='"-" for stdin.')
+    parser.add_argument('calibfile', #nargs='?',
+                        help='column file')
+    #parser.add_argument('-p', '--phyltreefile')
+    parser.add_argument('-p', '--parser', default='ete3_f1', help='[%(default)s]')
+    parser.add_argument('-D', '--delimiter', default='\t',
+                        help='Column separator in the calibfile [%(default)r]')
+    parser.add_argument('-a', '--ages-column', default=1,
+                        help='Column containing the ages [%(default)r]')
+    parser.add_argument('-H', '--header-row', action='store_true',
+                        help='Discard one header row in calibfile.')
+    parser.add_argument('-m', '--measures', default='dist',
+                        help='comma separated list [%(default)s]')
+    parser.add_argument('-s', '--ancgene2sp', metavar='PATTERN', default=ANCGENE2SP,
+                        help='Regex to find the taxon from an internal node label [%(default)s]')
+    parser.add_argument('-e', '--ensembl-version', metavar='N', type=int, default=ENSEMBL_VERSION,
+                        help='[%(default)s]')
+    parser.add_argument('-t', '--totree', action='store_true',
+                        help='Do not compute the table, but save trees in one'\
+                            ' newick file with MPL lengths as new distances.')
+
+    add_MPL_options_to_parser(parser)
     parser.add_argument('-f', '--dataset-fmt', default='{basename}',
                         help=('Format for the `subgenetree` column. Available '
-                          'keys: basename,dirname (of the treefile). [%(default)s]'))
+                          'keys: basename,dirname,number (of the treefile). [%(default)s]'))
     parser.add_argument('-v', '--verbose', action='store_true',
                         help='print progression along the tree')
 
@@ -874,19 +913,13 @@ Example to date all internal nodes except a calibrated speciation:
 
     measures = args.measures.split(',')
     ensembl_version = args.ensembl_version
+    ancgene2sp = re.compile(args.ancgene2sp)
 
-    #NOTE: copied from genchron.analyse.generate_dNdStable.process()
-    # Convert argument to function
-    todate_funcs = {'isdup': retrieve_isdup, 'd': retrieve_isdup,
-            'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
-            'taxon': def_is_any_taxon, 't': def_is_any_taxon,
-            'true': true, 'false': false}
-
-    todate = combine_boolean_funcs(args.todate, todate_funcs)
+    todate = combine_boolean_funcs(args.todate, TODATE_FUNCS)
     logger.debug('todate function: %s', todate.__name__)
 
     def this_get_taxon(node):
-        return get_taxon(node, ensembl_version)
+        return get_taxon(node, ancgene2sp, ensembl_version, skip_seq_error=True)
     
     def get_eventtype(node, subtree):
         if node.is_leaf():
@@ -927,10 +960,17 @@ Example to date all internal nodes except a calibrated speciation:
 
     parse = parserchoice[args.parser]
     convert = converterchoice[args.parser]['ete3']
-    for tree_obj in parse(args.treefile):
+    tree_nb = 0
+    for tree_obj in parse(stdin if args.treefile=='-' else args.treefile):
+        tree_nb += 1
         tree = convert(tree_obj)
         tree.add_features(dirname=op.dirname(args.treefile),
-                          basename=op.basename(args.treefile))
+                          basename=op.basename(args.treefile),
+                          number=tree_nb)
+
+        ambiguous = disambiguate_nodelabels(tree)
+        if any(ambiguous.values()):
+            logger.warning('Node labels with identical names were disambiguated with a numerical suffix')
 
         node_info = [('taxon', this_get_taxon), ('is_outgroup', is_outgroup)]
         ages, subtrees = bound_average(tree, calib, todate,

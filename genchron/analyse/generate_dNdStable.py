@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 
-ENSEMBL_VERSION = 85
 PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
 
 BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
@@ -871,12 +870,7 @@ def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_b
             fix_conflict_ages=True, keeproot=False, dataset_fmt='{basename}'):
 
     # Convert argument to function
-    todate_funcs = {'isdup': retrieve_isdup, 'd': retrieve_isdup,
-            'isinternal': isinternal, 'isint': isinternal, 'i': isinternal,
-            'taxon': def_is_any_taxon, 't': def_is_any_taxon,
-            'true': true, 'false': false}
-
-    todate = combine_boolean_funcs(todate, todate_funcs)
+    todate = combine_boolean_funcs(todate, TODATE_FUNCS)
     logger.debug('todate function: %s', todate.__name__)
 
     def this_get_taxon(node):
@@ -1111,38 +1105,7 @@ if __name__=='__main__':
                     help='replacement string file [%(default)s]')
     
     ### Run options
-    gr = parser.add_argument_group('RUN PARAMETERS')
-    
-    gr.add_argument('-d', '--todate', default="isdup", metavar='TESTS',
-                    help=combine_boolean_funcs.__doc__ + """
-    - tests may be any of: 'isdup', 'isinternal', 'taxon'.
-       The 'taxon' test must be written with taxa as arguments:
-           'taxon:mytaxon1,mytaxon2'.
-
-Example to date all internal nodes except a calibrated speciation:
-'isdup | isinternal !taxon:Simiiformes'
-
-[%(default)r]""")
-    gr.add_argument('-u', '--unweighted', action='store_true', 
-                    help='average weighted by the size of clusters')
-    gr.add_argument('-2', '--orig-leading-path', dest='original_leading_paths',
-                    action='store_true')
-    gr.add_argument('-c', '--correct-uneq-calib', dest='correct_unequal_calibs',
-                    choices=['default', 'mine', 'pathd8', 'ignore'], default='default',
-                    help='Formula to adjust path lengths when they end at ' \
-                         'different calibrations [%(default)s]')
-    gr.add_argument('-F', '--nofix-conflicts', dest='fix_conflict_ages',
-                    action='store_false',
-                    help='Do not force children to be younger than parent.')
-    gr.add_argument('-k', '--keeproot', action='store_true',
-                    help="Date the nodes immediately following the root " \
-                         "(not recommended).")
-    #gr.add_argument('--allow-uneq-ch-age', type=float, default=0,
-    #                dest='allow_unequal_children_age',
-    #                help="tolerance threshold to output the Mean Path Length "\
-    #                     "value of a node, when the next calibrated children "
-    #                     "have different ages"\
-    #                     "(Use carefully) [%(default)s].")
+    gr = add_MPL_options_to_parser(parser)
     gr.add_argument("-i", "--ignore-errors", action="store_true", 
                     help="On error, print the error and continue the loop.")
     
