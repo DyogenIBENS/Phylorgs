@@ -1,5 +1,9 @@
 
-"""Also see in Biopython: Bio.Alphabet.IUPAC"""
+"""
+IUPAC biological residue symbols.
+
+Also see in Biopython: Bio.Alphabet.IUPAC (deprecated)
+"""
 
 
 GAPS = '-.'

@@ -66,8 +66,7 @@ rule translate:
     run:
         from Bio import AlignIO
         from Bio.Align import MultipleSeqAlignment
-        from Bio.Alphabet import IUPAC
-        al = AlignIO.read(input[0], 'fasta', alphabet=IUPAC.ambiguous_dna)
+        al = AlignIO.read(input[0], 'fasta')
         AlignIO.write(MultipleSeqAlignment([seq.translate(gap='-',
                                                           id=True,
                                                           name=True,

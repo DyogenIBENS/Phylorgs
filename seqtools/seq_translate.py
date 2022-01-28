@@ -11,7 +11,7 @@ _epilog = ("Note: if input format is \"evolver\"/\"multifasta\" and output forma
 import sys
 import argparse
 from Bio import SeqIO
-from Bio.Alphabet import IUPAC
+
 
 try:
     from seqtools.seqconv import parse_filename_range, split_multidata, split_evolver
@@ -29,7 +29,7 @@ def iter_translate(records, format="fasta"):
 def translate(inputfile, outfile, input_format="fasta", output_format='fasta'):
     if inputfile == '-':
         inputfile = sys.stdin
-    SeqIO.write(iter_translate(SeqIO.parse(inputfile, input_format, alphabet=IUPAC.ambiguous_dna)), outfile, output_format)
+    SeqIO.write(iter_translate(SeqIO.parse(inputfile, input_format)), outfile, output_format)
 
 
 def main():

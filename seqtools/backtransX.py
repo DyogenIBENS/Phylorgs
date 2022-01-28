@@ -14,7 +14,6 @@ from collections import OrderedDict
 
 from seqtools import symbols
 
-from Bio import Alphabet  # Actually all the non empty alphabets are in Alphabet.IUPAC
 #from Bio.Tools import Translate  # Doesn't exist.
 import logging
 logger = logging.getLogger(__name__)
@@ -57,7 +56,7 @@ def backtrans(prots: dict, dnas: dict):
             else:
                 backseq += dnaseq[i*3:(i+1)*3]
                 i += 1
-        backdna = SeqRecord.SeqRecord(Seq.Seq(backseq, Alphabet.IUPAC.ambiguous_dna),
+        backdna = SeqRecord.SeqRecord(Seq.Seq(backseq),
                                       id=name, name=name, description=prot.description)
         # Check
         retranslated = str(backdna.translate(gap='-').seq)
@@ -84,12 +83,8 @@ def backtrans(prots: dict, dnas: dict):
 def backtransIO(inputprot, inputdna, outfile, format=FORMAT):
     if inputprot == "-":
         inputprot = stdin
-    prots = OrderedDict((seq.id, seq)
-                        for seq in SeqIO.parse(inputprot, format,
-                            Alphabet.IUPAC.extended_protein))
-    dnas = {seq.id: seq
-            for seq in SeqIO.parse(inputdna, format,
-                                   Alphabet.IUPAC.ambiguous_dna)}
+    prots = OrderedDict((seq.id, seq) for seq in SeqIO.parse(inputprot, format))
+    dnas = {seq.id: seq for seq in SeqIO.parse(inputdna, format)}
 
     SeqIO.write(backtrans(prots, dnas), outfile, format)
 
