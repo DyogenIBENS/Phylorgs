@@ -2,10 +2,10 @@
 """Also see in Biopython: Bio.Alphabet.IUPAC"""
 
 
-gaps = '-.'
-nucleotides = 'ACGT'
-unknown = 'N'
-ambiguous = {'R': set('AG'),
+GAPS = '-.'
+NUCLEOTIDES = 'ACGT'
+NUCL_UNKNOWN = 'N'
+NUCL_AMBIGUOUS = {'R': set('AG'),
              'Y': set('CT'),
              'S': set('GC'),
              'W': set('AT'),
@@ -16,9 +16,9 @@ ambiguous = {'R': set('AG'),
              'H': set('ACT'),
              'V': set('ACG')}
 
-aa = 'ABCDEFGHIKLMNPQRSTVWYZ'
-unknown_aa = 'X'
-stop_codons = set(('TGA', 'TAG', 'TAA'))  # In standard alphabet
+AA = 'ABCDEFGHIKLMNPQRSTVWYZ'
+AA_UNKNOWN = 'X'
+CODONS_STOP = set(('TGA', 'TAG', 'TAA'))  # In standard alphabet
 #aa = {
 #      'A':        Ala        Alanine
 #      'B':        Asx        Aspartic acid or Asparagine

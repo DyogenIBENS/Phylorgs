@@ -14,7 +14,7 @@ import numpy as np
 import argparse
 from Bio import AlignIO, SeqIO
 from collections import Counter
-from seqtools.IUPAC import gaps, nucleotides, unknown, ambiguous, stop_codons
+from seqtools.IUPAC import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS, CODONS_STOP
 
 import logging
 logger = logging.getLogger(__name__)
@@ -41,16 +41,16 @@ def get_seq_counts(alignment):
         counts = Counter(record.seq)
         CpG = record.seq.count('CG')
 
-        seq_nucl[:, i] = [counts[n] for n in nucleotides]
-        seq_gap[i]  = sum(counts[g] for g in gaps)
-        seq_N[i]    = counts[unknown]
-        for a, possible in ambiguous.items():
+        seq_nucl[:, i] = [counts[n] for n in NUCLEOTIDES]
+        seq_gap[i]  = sum(counts[g] for g in GAPS)
+        seq_N[i]    = counts[NUCL_UNKNOWN]
+        for a, possible in NUCL_AMBIGUOUS.items():
             seq_N[i] += counts[a] * (1-len(possible)/4.)
             for p in possible:
-                seq_nucl[nucleotides.index(p), i] += 0.25 * counts[a]
+                seq_nucl[NUCLEOTIDES.index(p), i] += 0.25 * counts[a]
 
         assert seq_nucl[:, i].sum() + seq_gap[i] + seq_N[i] == length
-        seq_stops[i] = sum(str(record.seq[k:k+3]) in stop_codons for k in range(0,length,3))
+        seq_stops[i] = sum(str(record.seq[k:k+3]) in CODONS_STOP for k in range(0,length,3))
 
         seq_CpG[i]  = CpG
 

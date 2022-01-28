@@ -30,7 +30,7 @@ except ImportError:
 
 from functools import reduce
 
-from seqtools.IUPAC import gaps, nucleotides
+from seqtools.IUPAC import GAPS, NUCLEOTIDES
 from seqtools.arrayal import *
 from datasci.graphs import stackedbar, plottree
 from dendro.bates import rev_dfw_descendants
@@ -442,13 +442,13 @@ def al_colorbar(ax, cax=None, orientation='vertical', **kwargs):
         logger.debug('cbar lim= %s; ylim= %s; xlim= %s', cbar.get_clim(),
                      cbar.ax.get_ylim(), cbar.ax.get_xlim())
         #TODO
-        cbar.ax.text(1, -0.05, gaps[0]*3, fontsize='x-small', clip_on=False) # under
-        #cbar.ax.annotate(gaps[0]*3, (1, -0.05), xytext=(2, 0),
+        cbar.ax.text(1, -0.05, GAPS[0]*3, fontsize='x-small', clip_on=False) # under
+        #cbar.ax.annotate(GAPS[0]*3, (1, -0.05), xytext=(2, 0),
         #                 textcoords='offset points',
         #                 fontsize='x-small', annotation_clip=False) # under
     else:
-        cbar.set_ticks(np.arange(len(nucleotides))+0.5)
-        cbar.set_ticklabels(nucleotides)
+        cbar.set_ticks(np.arange(len(NUCLEOTIDES))+0.5)
+        cbar.set_ticklabels(NUCLEOTIDES)
     cbar.ax.tick_params(labelsize='x-small')
     return cbar
 

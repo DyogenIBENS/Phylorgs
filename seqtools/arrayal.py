@@ -12,17 +12,17 @@ The 'al2int' function encodes residues as integers.
 import re
 import numpy as np
 from itertools import product, combinations
-from seqtools.IUPAC import gaps, unknown, nucleotides, ambiguous
+from seqtools.IUPAC import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS
 
 
 STOPS = ['TAA', 'TAG', 'TGA']
-CODONS = [''.join(codon) for codon in product(*[nucleotides]*3)
+CODONS = [''.join(codon) for codon in product(*[NUCLEOTIDES]*3)
           if ''.join(codon) not in STOPS]
 NACODON = '---'
 #NCODONS = 
 CODON2INT = {codon:i for i,codon in enumerate([NACODON] + CODONS + STOPS)}
 #NUCL2INT  = {'-': 0, 'A': 1, 'C': 2, 'G': 3, 'T': 4}
-NUCL2INT = {symbol: i for i, symbol in enumerate(gaps[0] + nucleotides)}
+NUCL2INT = {symbol: i for i, symbol in enumerate(GAPS[0] + NUCLEOTIDES)}
 
 
 def make_unif_codon_dist():
@@ -89,7 +89,7 @@ def category2int(array, converter_dict, allow_N=False):
         ufunc = converter_dict.__getitem__
     else:
         #ufunc = lambda residue: converter_dict.get(residue, np.NaN)
-        Ncodon_regex = re.compile(r'[' + unknown + nucleotides + ''.join(ambiguous) + ']+$')
+        Ncodon_regex = re.compile(r'[' + NUCL_UNKNOWN + NUCLEOTIDES + ''.join(NUCL_AMBIGUOUS) + ']+$')
         Ncodon_int = max(converter_dict.values()) + 1
         
         def ufunc(residue):
