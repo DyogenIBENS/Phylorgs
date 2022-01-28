@@ -137,17 +137,6 @@ def presence_matrix(vint, minlength=66):
     return presence
 
 
-    ### WTF
-def presence_matrice(vint, minlength=66):
-    assert len(vint.shape) == 2 and vint.shape[0] == 1, \
-            "Can't input more than one sequence " + str(vint.shape)
-    count_mat = count_matrix(vint, minlength)
-    presence = count_mat.astype(bool)
-    # Convert gaps (integer zero) and 'N' (integer minlength-1) to unknown: True everywhere.
-    presence[0, :] = True
-    return presence
-
-
 def np_proportions(values):
     # Convert values to integers
     vunique, vcounts = np.unique(values, return_counts=True)

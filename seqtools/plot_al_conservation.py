@@ -69,21 +69,6 @@ def filename2format(filename):
     return ext2fmt[ext]
 
 
-def proportions(values):
-    """DEPRECATED.
-    Compute proportion of each possible value.
-    return dictionary with proportion of each value.
-    values: list of elements."""
-    value_set = set(values)
-    L = len(values)
-    return {val: float(values.count()) / L}
-
-def entropy(values, na=None):
-    """DEPRECATED"""
-    value_prop = proportions(values)
-    return -sum(p*np.log2(p) for val, p in value_prop.items() if val != na)
-
-
 def pairs_score(vint, indexpairs, dist_mat=UNIF_CODON_DIST):
     nrows, ncols = vint.shape
     pairs = [np.stack((vint[i,:], vint[j,:])) for i, j in indexpairs]
@@ -112,29 +97,6 @@ def pearson_coeff(X, Y, axis=0):
     coeff = cov(X, Y, axis)
     coeff /= (X.std(axis=axis) * Y.std(axis=axis))
     return coeff
-
-
-def comp_parts(alint, compare_parts=None):
-    """DEPRECATED"""
-    if compare_parts is None:
-        return None
-
-    parts = [[int(i) for i in part.rstrip(')').lstrip('(').split(',')]
-             for part in compare_parts.split(';')]
-
-    assert len(parts) == 2
-
-    alparts = [np.stack([alint[i,:] for i in part]) for part in parts]
-
-    freq_mat1, freq_mat2 = [freq_matrix(alpart) for alpart in alparts]
-    count_mat1, count_mat2 = [count_matrix(alpart) for alpart in alparts]
-
-    manh_dist = np.abs(freq_mat1 - freq_mat2).sum(axis=0)
-    pearson_c = pearson_coeff(count_mat1, count_mat2, axis=0)
-    split_sc = part_sp_score(alint, parts)
-    print(split_sc.shape)
-
-    return np.stack((manh_dist, split_sc,))
 
 
 # ~~> arrayal/evol
@@ -326,56 +288,6 @@ def get_items_biophylo(tree, nodedist):
 
 def get_label_biophylo(tree, node):
     return node.name
-
-
-def plot_al_stats(gap_prop, al_entropy, alint, dist_array=None, seqlabels=None,
-                  outfile=None):
-    """DEPRECATED."""
-    if outfile is None:
-        #try:
-        #    plt.switch_backend('Qt5Agg')
-        #except ImportError:
-        plt.switch_backend('TkAgg')
-
-    #try:
-    #    alcmap = plt.get_cmap('tab20', alint.max() - 1)
-    #except ValueError:
-
-    nvalues = alint.max()
-    #nvalues = 
-    logger.info(nvalues)
-    alcmap = plt.get_cmap('Dark2', nvalues)
-
-    masked_al = np.ma.array(alint, mask=(alint==0))
-
-    nplots = 4 if dist_array is None else 5
-    fig, axes = plt.subplots(nplots, sharex=True, figsize=(15,10))
-
-    x = np.arange(len(gap_prop))
-    axes[0].step(x, gap_prop, where='post')
-    axes[1].bar(x, al_entropy, width=1)
-    axes[2].bar(x, (1-gap_prop) * (1 - al_entropy), width=1)
-    
-    #axes[3].imshow(is_gap, cmap='binary_r', aspect='auto') #, interpolation='gaussian')
-    axes[3].imshow(masked_al, cmap=alcmap, aspect='auto') #, interpolation='gaussian')
-
-    axes[0].set_ylabel("Proportion of gaps (G)")
-    axes[1].set_ylabel("Entropy (H)")
-    axes[2].set_ylabel("Score : (1 - G)*(1 - H)")
-    axes[3].set_ylabel("Alignment")
-    if seqlabels is not None:
-        axes[3].set_yticks(np.arange(alint.shape[0]))
-        axes[3].set_yticklabels(seqlabels, fontsize='x-small')
-    axes[-1].set_xlabel("Residue position")
-
-    if dist_array is not None:
-        axes[4].step(x, dist_array.T, where='post', alpha=0.7)
-        axes[4].legend(('pearson_corr', 'manhattan dist'), fontsize='x-small')
-    
-    if outfile is None:
-        plt.show()
-    else:
-        fig.savefig(outfile)
 
 
 def annotate_summary(ax, values):
@@ -883,23 +795,6 @@ class AlignPlotter(object):
             #print(clock())
         else:
             self.fig.savefig(outfile, bbox_inches='tight', **kwargs)
-
-
-
-def main_old(infile, outfile=None, format=None, nucl=False, allow_N=False,
-             records=None, slice=None, compare_parts=None):
-    align = AlignIO.read(infile, format=(format or filename2format(infile.name)))
-    if records:
-        records = [int(r) for r in ','.split(records)]
-        align = Align.MultipleSeqAlignment([align[r] for r in records])
-    if slice:
-        slstart, slend = [int(pos) for pos in slice.split(':')]
-        align = align[:,slstart:slend]
-
-    seqlabels = [record.name for record in align]
-    gap_prop, al_entropy, alint = get_position_stats(align, nucl, allow_N)
-    dist_array = comp_parts(alint, compare_parts)
-    plot_al_stats(gap_prop, al_entropy, alint, dist_array, seqlabels, outfile)
 
 
 def plot_al_conservation(infile, format=None, nucl=False, allow_N=False,
