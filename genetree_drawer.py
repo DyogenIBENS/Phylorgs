@@ -1189,8 +1189,10 @@ if __name__ == '__main__':
                         help='Display gene names: \n' \
                              '- comma-sep list of "leaf", "dup", "spe";\n'
                              '- "all" (identical to "leaf,dup,spe").')
+    #FIXME: use type=commasplit for consistency
     g_pars.add_argument('-T', '--tags', default="",
-                        help="Additional node tags to write")
+                        help="Additional node tags to write. '-name' will hide the node name")
+    #FIXME: use type=commasplit for consistency
     g_pars.add_argument('-k', '--asymmetric', action='store_true',
                         help='Draw *asymmetric* gene duplications: one branch'\
                              ' stays the main branch, and other are children.')
