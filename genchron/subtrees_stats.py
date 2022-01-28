@@ -28,7 +28,8 @@ from dendro.trimmer import fuse_single_child_nodes_ete3
 from seqtools import ungap, \
                      algrep, \
                      make_al_compo
-from seqtools.plot_al_conservation import reorder_al, get_position_stats, parsimony_score
+from seqtools.arrayal import reorder_al, get_position_stats
+from seqtools.plot_al_conservation import parsimony_score
 from pamliped.codemlparser2 import parse_mlc
 from genchron.find_non_overlapping_codeml_results import list_nonoverlapping_NG
 from genchron.prune2family import split_species_gene

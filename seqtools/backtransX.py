@@ -13,7 +13,6 @@ from Bio import SeqIO, SeqRecord, Seq
 from collections import OrderedDict
 
 from seqtools import IUPAC
-#from seqtools.plot_al_conservation import al2array  # ~~> move
 
 from Bio import Alphabet  # Actually all the non empty alphabets are in Alphabet.IUPAC
 #from Bio.Tools import Translate  # Doesn't exist.
