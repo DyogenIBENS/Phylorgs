@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-from seqtools.plot_al_conservation import *
+from .infer import *
 from Bio.Phylo.BaseTree import Clade
 logging.basicConfig()
 logger.setLevel(logging.DEBUG)
