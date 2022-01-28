@@ -30,7 +30,7 @@ except ImportError:
 
 from functools import reduce
 
-from seqtools.IUPAC import GAPS, NUCLEOTIDES
+from seqtools.symbols import GAPS, NUCLEOTIDES
 from seqtools.arrayal import *
 from datasci.graphs import stackedbar, plottree
 from dendro.bates import rev_dfw_descendants

@@ -12,7 +12,7 @@ import argparse as ap
 from Bio import SeqIO, SeqRecord, Seq
 from collections import OrderedDict
 
-from seqtools import IUPAC
+from seqtools import symbols
 
 from Bio import Alphabet  # Actually all the non empty alphabets are in Alphabet.IUPAC
 #from Bio.Tools import Translate  # Doesn't exist.
@@ -52,7 +52,7 @@ def backtrans(prots: dict, dnas: dict):
         i = 0
         backseq = ''
         for aa in prot.seq:
-            if aa in IUPAC.gaps:
+            if aa in symbols.GAPS:
                 backseq += '---'
             else:
                 backseq += dnaseq[i*3:(i+1)*3]

@@ -12,7 +12,7 @@ The 'al2int' function encodes residues as integers.
 import re
 import numpy as np
 from itertools import product, combinations
-from seqtools.IUPAC import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS
+from seqtools.symbols import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS
 
 
 STOPS = ['TAA', 'TAG', 'TGA']

@@ -14,7 +14,7 @@ import numpy as np
 import argparse
 from Bio import AlignIO, SeqIO
 from collections import Counter
-from seqtools.IUPAC import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS, CODONS_STOP
+from seqtools.symbols import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS, CODONS_STOP
 
 import logging
 logger = logging.getLogger(__name__)
