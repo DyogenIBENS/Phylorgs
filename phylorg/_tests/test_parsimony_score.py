@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
-from .infer import *
+from phylorg.infer import *
 from Bio.Phylo.BaseTree import Clade
 logging.basicConfig()
 logger.setLevel(logging.DEBUG)

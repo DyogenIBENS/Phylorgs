@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-#%run -n ~/scripts/genchron/analyse/generate_dNdStable.py
-from genchron.analyse.generate_dNdStable import *
+from genchron.MPL import *
 import os.path as op
 import pandas as pd
 from types import GeneratorType
 import matplotlib.pyplot as plt
+import ete3
 
 
 logging.basicConfig(format=logging.BASIC_FORMAT)
@@ -51,6 +51,7 @@ def todate(node, *a, **kw):
 
 tree = ete3.Tree('((ENSG0000,ENSG0001)Homo.sapiensENSGT,Pan.paniscusENSGT)HomoPanENSGT;', format=1)
 
+# test_get_taxon
 assert 'Homo sapiens' == get_taxon(tree&'ENSG0000', 93)
 assert 'Homo sapiens' == get_taxon(tree&'ENSG0001', 93)
 assert 'Homo sapiens' == get_taxon(tree&'Homo.sapiensENSGT', 93)
@@ -65,6 +66,7 @@ subtree = {
         'HomoPanENSGT': {'taxon': 'HomoPan'}
         }
 
+# test_isdup
 assert not isdup(tree&'ENSG0000', subtree)
 assert not isdup(tree&'ENSG0001', subtree)
 assert isdup(tree&'Homo.sapiensENSGT', subtree)

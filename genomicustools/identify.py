@@ -11,20 +11,11 @@ import os.path as op
 import re
 from functools import partial
 from copy import deepcopy
-from bz2 import BZ2File
-import warnings
 import logging
 logger = logging.getLogger(__name__)
 #ch = logging.StreamHandler()
 #ch.setFormatter(logging.Formatter("%(levelname)s:%(module)s l.%(lineno)d:%(message)s"))
 #logger.addHandler(ch)
-
-
-def myopen(filename, *args, **kwargs):
-    if filename.endswith('.bz2'):
-        return BZ2File(filename, *args, **kwargs)
-    else:
-        return open(filename, *args, **kwargs)
 
 
 ENSEMBL_VERSION = 85
@@ -401,25 +392,6 @@ def convert_gene2species(modernID, ensembl_version=ENSEMBL_VERSION):
                                "Ensembl %d)" % (modernID, ensembl_version))
 
 
-# "Legacy" (worst idea ever)
-def grep_prot(filename, protID, cprot=2, cgene=0):
-    #print(cprot, cgene)
-    with myopen(filename) as IN:
-        for line in IN:
-            fields = line.rstrip('\r\n').split('\t')
-            if fields[cprot] == protID:
-                return fields[cgene]
-
-
-def grep_gene(filename, geneID, cprot=2, cgene=0):
-    with myopen(filename) as IN:
-        for line in IN:
-            fields = line.rstrip('\r\n').split('\t')
-            
-            if fields[cgene] == geneID:
-                return fields[cprot]
-
-
 def convert_prot2gene(protID, gene_info, cprot=2, cgene=0, shorten_species=False,
                       ensembl_version=ENSEMBL_VERSION):
     warning.warn('Bad (inefficient) function (too much IO). You should load all conversions at once in a dict.')
@@ -529,128 +501,6 @@ def ultimate_seq2sp(seqname, ensembl_version=ENSEMBL_VERSION):
     return sp
 
 
-# My first ever unit-test!
-def test_convert_prot2species(ensembl_version, default, gene_info, cprot=2):
-    """test the `convert_prot2species` function for every modernID"""
-    # Check rejection of wrong strings
-    from glob import glob
-    for wrong in ('xululul', '0000000', 'ENSXXXP', 'ENSG000'):
-        predicted_sp = convert_prot2species(wrong, ensembl_version, False)
-        assert predicted_sp is False, "%r predicted %r" % (wrong, predicted_sp)
-
-    # Check every valid prot ID in the given files
-    splist_module = set(PROT2SP[ensembl_version].values())
-    sp_from_filename = re.compile(gene_info.replace('%s', '([A-Za-z0-9.]+)'))
-    gene_info_files = glob(gene_info.replace('%s', '*'))
-    assert gene_info_files, "No files found, check your path."
-    splist_file = set(sp_from_filename.match(fn).group(1).replace('.', ' ')
-                      for fn in gene_info_files)
-
-    if not splist_module == splist_file:
-        raise AssertionError('Differences in lists of species:\n' +
-                             'module (%d): %s\n' % (len(splist_module),
-                                                    splist_module - splist_file) +
-                             'files  (%d): %s' % (len(splist_file),
-                                                  splist_file - splist_module))
-    for sp in splist_file:
-        filename = gene_info % sp.replace(' ', '.')
-        print("Checking %s in %r" % (sp, op.basename(filename)), file=stderr)
-        # Check that each species protein return the correct species.
-        with myopen(filename) as IN:
-            for line in IN:
-                prot = line.rstrip('\r\n').split('\t')[cprot]
-                try:
-                    predicted_sp = convert_prot2species(prot, ensembl_version, default)
-                    assert sp == predicted_sp, "%s: %r ≠ %r" % (prot, sp, predicted_sp)
-                except KeyError as err:
-                    err.args = err.args[:-1] + \
-                               (err.args[-1] + ' '.join((sp, prot, "Not found")),)
-                    raise
-    return True
-
-
-def test_convert_gene2species(ensembl_version, gene_info, cgene=1):
-    """test the above function for every modernID"""
-    # Check rejection of wrong strings
-    from glob import glob
-    for wrong in ('xululul', '0000000', 'ENSXXXG', 'ENSP000'):
-        try:
-            predicted_sp = convert_gene2species(wrong, ensembl_version)
-        except KeyError:
-            predicted_sp = False
-
-        assert predicted_sp is False, "%r predicted %r" % (wrong, predicted_sp)
-
-    # Check every valid gene ID in the given files
-    splist_module = set(GENE2SP[ensembl_version].values())
-    sp_from_filename = re.compile(gene_info.replace('%s', '([A-Za-z0-9.]+)'))
-    gene_info_files = glob(gene_info.replace('%s', '*'))
-    assert gene_info_files, "No files found, check your path."
-    splist_file = set(sp_from_filename.match(fn).group(1).replace('.', ' ') \
-                        for fn in gene_info_files)
-
-    if not splist_module == splist_file:
-        raise AssertionError('Differences in lists of species:\n' +
-                             'module (%d): %s\n' % (len(splist_module),
-                                                    splist_module - splist_file) +
-                             'files  (%d): %s' % (len(splist_file),
-                                                  splist_file - splist_module))
-    for sp in splist_file:
-        filename = gene_info % sp.replace(' ', '.')
-        print("Checking %s in %r" % (sp, op.basename(filename)), file=stderr)
-        # Check that each species gene return the correct species.
-        with open(filename) as IN:
-            for line in IN:
-                gene = line.rstrip('\r\n').split('\t')[cgene]
-                try:
-                    predicted_sp = convert_gene2species(gene, ensembl_version)
-                except KeyError as err:
-                    err.args = err.args[:-1] + \
-                               (err.args[-1] + ' '.join((sp, gene, "Not found")),)
-                    raise
-                assert sp == predicted_sp, "%s: %r ≠ %r" % (gene, sp, predicted_sp)
-    return True
-
-
-def test_convert2species(ensembl_version, default=None,
-                         forestfile='~/GENOMICUS%d/tree.1.ensembl.bz2'):
-    """test the `convert_prot2species` function for every modernID"""
-    # Check rejection of wrong strings
-    from LibsDyogen import myProteinTree
-
-    for wrong in ('xululul', '0000000', 'ENSXXXP', 'ENSG000'):
-        predicted_sp = convert_prot2species(wrong, ensembl_version, False)
-        assert predicted_sp is False, "%r predicted %r" % (wrong, predicted_sp)
-
-    expected_species = set(GENE2SP[ensembl_version].values())
-    expected_species_p = set(PROT2SP[ensembl_version].values())
-    assert expected_species == expected_species_p
-
-    for tree in myProteinTree.loadTree(op.expanduser(forestfile % ensembl_version)):
-        for tip in (set(tree.info) - set(tree.data)):
-            tipinfo = tree.info[tip]
-            sp = tipinfo['taxon_name']
-            gene = tipinfo['gene_name']
-            prot = tipinfo['protein_name']
-
-            assert sp in expected_species, 'Unexpected species %r' % sp
-
-            try:
-                predicted_sp = convert_gene2species(gene, ensembl_version)
-            except KeyError as err:
-                err.args = err.args[:-1] + \
-                           (err.args[-1] + ' '.join((sp, gene, "Not found")),)
-                raise
-            assert sp == predicted_sp, "%s: %r ≠ %r" % (gene, sp, predicted_sp)
-
-            try:
-                predicted_sp = convert_prot2species(prot, ensembl_version, default)
-            except KeyError as err:
-                err.args = err.args[:-1] + \
-                           (err.args[-1] + ' '.join((sp, prot, "Not found")),)
-                raise
-            assert sp == predicted_sp, "%s: %r ≠ %r" % (prot, sp, predicted_sp)
-            
 
 def main():
     import argparse as ap

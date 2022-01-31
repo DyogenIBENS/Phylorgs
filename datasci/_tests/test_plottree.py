@@ -32,9 +32,10 @@ def test_triangles():
     print('collapsed =', collapsed)
     lines, _, _ = plottree(tree, get_items, get_label, invert=False,
                            label_nodes=True, collapsed=collapsed)
+    plt.title('Collapsed clades should be a,b,c.')
     plt.show()
     plt.close()
-    assert get_answer('Were triangles displayed?') == 'y'
+    assert get_answer('Were triangles displayed at a/b/c?') == 'y'
 
 
 class Test_edge_colormap:
@@ -63,7 +64,7 @@ class Test_edge_colormap:
                  edge_cmap=edge_cmap, label_nodes=True, collapsed=collapsed);
         lines.axes.legend([mpl.lines.Line2D([], [], color=edge_cmap(1)),
                            mpl.lines.Line2D([], [], color=edge_cmap(0))],
-                         ['1', '0'], loc='upper left')
+                          ['1: nodes a,0,c,2,e,y,r', '0: nodes b,1,d,x,z'], loc='upper left')
         plt.show()
         plt.close()
         assert get_answer('Were the colors correct?') == 'y'
@@ -79,6 +80,8 @@ class Test_edge_colormap:
         n_values = len(uniq_values)
         edge_cmap = plt.get_cmap('Paired', n_values)
         edge_cmap.set_bad('k')
+        def get_label_with_value(tree, node):
+            return '%s val=%s' % (node.name, self.cat_values[node.name])
         lines, _, _ = plottree(self.tree, get_items, get_label,
                  invert=False,
                  edge_colors=self.cat_values,

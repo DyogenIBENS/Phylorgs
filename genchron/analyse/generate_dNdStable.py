@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 
-PHYLTREEFILE = "/users/ldog/glouvel/ws_alouis/GENOMICUS_SVN/data{0:d}/PhylTree.Ensembl.{0:d}.conf"
+PHYLTREEFILE = "~/GENOMICUS{0:d}/PhylTree.Ensembl.{0:d}.conf"
 
 BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
                      for s in ('', '_median', '_95%_HPD', '_range')).union(('posterior',))
