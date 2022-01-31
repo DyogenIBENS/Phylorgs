@@ -12,17 +12,21 @@ The 'al2int' function encodes residues as integers.
 import re
 import numpy as np
 from itertools import product, combinations
-from seqtools.symbols import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS
+from seqtools.symbols import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS, AA, AA_UNKNOWN, AA_AMBIGUOUS, CODONS_STOP
 
 
-STOPS = ['TAA', 'TAG', 'TGA']
 CODONS = [''.join(codon) for codon in product(*[NUCLEOTIDES]*3)
-          if ''.join(codon) not in STOPS]
+          if ''.join(codon) not in CODONS_STOP]
 NACODON = '---'
-#NCODONS = 
-CODON2INT = {codon:i for i,codon in enumerate([NACODON] + CODONS + STOPS)}
-#NUCL2INT  = {'-': 0, 'A': 1, 'C': 2, 'G': 3, 'T': 4}
-NUCL2INT = {symbol: i for i, symbol in enumerate(GAPS[0] + NUCLEOTIDES)}
+CODON2INT = {codon: i for i, codon in enumerate([NACODON] + CODONS + list(CODONS_STOP))}
+NUCL2INT = {symbol: i for i, symbol in enumerate(NUCLEOTIDES, start=1)}
+AA2INT   = {symbol: i for i, symbol in enumerate(AA, start=1)}
+for converter_dict in (NUCL2INT, CODON2INT, AA2INT):
+    converter_dict.update({symbol.lower(): i for symbol, i in converter_dict.items() if i})
+for symbol in GAPS:
+    CODON2INT[symbol*3] = 0
+    NUCL2INT[symbol]    = 0
+    AA2INT[symbol]      = 0
 
 
 def make_unif_codon_dist():
@@ -32,9 +36,9 @@ def make_unif_codon_dist():
     Invalid codons (containing N nucleotides) as well.
     """
     all_values = [NACODON] + CODONS
-    size = len(all_values) + len(STOPS) + 1  # +1 because of invalid codons e.g 'NNN'
+    size = len(all_values) + len(CODONS_STOP) + 1  # +1 because of invalid codons e.g 'NNN'
     uniform_codon_dist = 1 - np.diagflat(np.ones(size))
-    for i,j in combinations(range(size - len(STOPS) - 1), 2):
+    for i,j in combinations(range(size - len(CODONS_STOP) - 1), 2):
         # sum of nucleotide differences
         cod0, cod1 = all_values[i], all_values[j]
         pair_dist = (np.array(list(cod0)) != np.array(list(cod1))).sum()
@@ -45,12 +49,6 @@ def make_unif_codon_dist():
     uniform_codon_dist[-4:, :] = np.NaN
 
     return uniform_codon_dist
-
-UNIF_CODON_DIST = make_unif_codon_dist()
-
-
-#def read_codon_matrix(filename):
-#    # ~/install/jprime-extra/arvecodon.txt
 
 
 def al2list(align_col):
@@ -64,34 +62,37 @@ def iter_strseq(align):
         yield str(record.seq)
 
 
-def al2array(align, nucl=False):
+def al2array(align, step=1):
     """"""
-    nseq = len(align)
     al_len = align.get_alignment_length()
-    npos = al_len if nucl else al_len // 3
-    step = 1      if nucl else 3
-    #alarray = np.array([['']*npos]*len(align))
+    npos = al_len // step
 
     return np.array([[seq[(j*step):((j+1)*step)] for j in range(npos)]
                                                  for seq in iter_strseq(align)])
 
 
-def al2int(align, nucl=False, allow_N=False):
+def al2int(align, altype='nucl', allow_N=False):
     """Converts a matrix of categorical values to integers"""
-    alarray = al2array(align, nucl)
-    converter_dict = NUCL2INT if nucl else CODON2INT
-    return category2int(alarray, converter_dict, allow_N)
+    alarray = al2array(align, (3 if altype=='codon' else 1))
+    converter_dict = NUCL2INT if altype=='nucl' else CODON2INT if altype=='codon' else AA2INT
+    allowed = None
+    if allow_N:
+        if altype=='aa':
+            allowed = [AA_UNKNOWN] + list(AA_AMBIGUOUS)
+        else:
+            allowed = [NUCL_UNKNOWN] + list(NUCL_AMBIGUOUS)
+    return category2int(alarray, converter_dict, allow=allowed)
 
 
-def category2int(array, converter_dict, allow_N=False):
+def category2int(array, converter_dict, allow=None):
     """Convert an array of categorical values using a dictionary"""
-    if not allow_N:
+    if not allow:
         ufunc = converter_dict.__getitem__
     else:
-        #ufunc = lambda residue: converter_dict.get(residue, np.NaN)
-        Ncodon_regex = re.compile(r'[' + NUCL_UNKNOWN + NUCLEOTIDES + ''.join(NUCL_AMBIGUOUS) + ']+$')
+        standard = set(converter_dict).difference(GAPS)
+        Ncodon_regex = re.compile(r'[' + ''.join(standard) + ''.join(allow) + ']+$')
         Ncodon_int = max(converter_dict.values()) + 1
-        
+
         def ufunc(residue):
             try:
                 return converter_dict[residue]
@@ -167,30 +168,17 @@ def freqs2entropy(freqs):
     return - (freqs * np.log2(freqs)).sum(axis=0)
 
 
-def get_position_stats(align, nucl=False, allow_N=False):
+def get_position_stats(align, altype='nucl', allow_N=False):
     """Compute gap proportion and entropy value for each position of the alignment"""
     al_len = align.get_alignment_length()
-    if al_len % 3 and not nucl:
+    if altype == 'codon' and al_len % 3:
         logger.error("Not a codon alignment!")
 
-    gap = '-'     if nucl else '---'
-    npos = al_len if nucl else al_len // 3
-    step = 1      if nucl else 3
-
-    alint = al2int(align, nucl, allow_N)
+    alint = al2int(align, altype, allow_N)
     alint = alint[:, alint.sum(axis=0) > 0]
 
-    #gap_prop = np.zeros(npos)
-    #al_entropy = np.full(npos, np.NaN)
-
-    #for i in range(npos):
-    #    values = al2list(align[:, (step*i):(step*(i+1))])
-    #    value_unique, value_prop = np_proportions(values)
-    #    #gap_prop[i]   = value_prop[np.argmax(value_unique == gap)] or 0
-    #    al_entropy[i] = np_entropy_subfunc(value_unique, value_prop, gap)
-
-    #gap_prop = (alint == 0).sum(axis=0) / alint.shape[0]
-    al_freqs = freq_matrix(alint, minlength=(6 if nucl else 66))
+    minlength = 6 if altype=='nucl' else 22 if altype=='aa' else 66
+    al_freqs = freq_matrix(alint, minlength=minlength)
     gap_prop = al_freqs[0,:]
     # Convert zeros to ones so that x * log(x) = 0
     al_freqs = al_freqs[1:,:]
@@ -198,7 +186,6 @@ def get_position_stats(align, nucl=False, allow_N=False):
     al_freqs[al_freqs == 0] = 1
     al_entropy = - (al_freqs * np.log2(al_freqs)).sum(axis=0)
 
-    logger.info(alint.shape)
     return gap_prop, al_entropy, alint
 
 

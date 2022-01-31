@@ -123,8 +123,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
     
     stats_names  = [typ + '_' + measure
                     for typ in ('glob', 'mean', 'med', 'std', 'w_mean', 'w_std')
-                    for measure in ('len', 'A','C','G','T', 'GC', 'N',
-                                    'gaps', 'CpG')]
+                    for measure in ('len', 'gaps', 'N', 'A','C','G','T', 'GC', 'CpG')]
     stats_names += ['glob_stops']
     # /!\ WARNING for future self: the below summary stats are **column-wise**!!!
     # (VS sequence-wise above)
@@ -180,7 +179,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
             ## By nucleotide column, then by codon.
             for nucl, minlength in [(True,6), (False,66)]:
-                _, entropy, alint = get_position_stats(al, nucl=nucl, allow_N=True)
+                _, entropy, alint = get_position_stats(al, altype=('nucl' if nucl else 'codon'), allow_N)
 
                 pars_score = parsimony_score(alint, tree, seqlabels,
                                              minlength=minlength,

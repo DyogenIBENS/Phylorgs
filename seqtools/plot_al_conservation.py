@@ -28,7 +28,7 @@ try:
 except ImportError:
     import argparse
 
-from seqtools.symbols import GAPS, NUCLEOTIDES
+from seqtools.symbols import GAPS, NUCLEOTIDES, AA
 from seqtools.arrayal import *
 from phylorg import parsimony_score
 from datasci.graphs import stackedbar, plottree
@@ -56,29 +56,35 @@ for param, paramval in mpl.rcParamsDefault.items():
         mpl.rcParams[param] = grey10
 
 
-ext2fmt = {'.fa':    'fasta',
+EXT2FMT = {'.fa':    'fasta',
+           '.faa':   'fasta',
            '.fasta': 'fasta',
            '.mfa':   'fasta',
-           '.phy':   'phylip-relaxed'}
+           '.phy':   'phylip-relaxed',
+           '.sto':   'stockholm',
+           '.nx':    'nexus',
+           '.nex':   'nexus'}
 
 
 def filename2format(filename):
     _, ext = os.path.splitext(filename)
-    return ext2fmt[ext]
+    return EXT2FMT[ext]
 
 
-def pairs_score(vint, indexpairs, dist_mat=UNIF_CODON_DIST):
-    nrows, ncols = vint.shape
-    pairs = [np.stack((vint[i,:], vint[j,:])) for i, j in indexpairs]
-    pair_scores = np.array([[dist_mat[tuple(p[:,i])] for i in range(ncols)] for p in pairs])
-    #print(pair_scores)
+def pairs_score(vint, indexpairs, dist_mat):
+    nsites = vint.shape[1]
+    seqpairs = [np.stack((vint[i,:], vint[j,:])) for i, j in indexpairs]
+    pair_scores = np.array([[dist_mat[tuple(p[:,site])] for site in range(nsites)]
+                            for p in seqpairs])
     return pair_scores.sum(axis=0)
 
-def sp_score(vint, dist_mat=UNIF_CODON_DIST):
+def sp_score(vint, dist_mat):
     """Compute the sum of all pairs score, column-wise"""
+    if dist_mat.shape[0] - 1 < vint.max():
+        raise ValueError('dist_mat size (current: %d) must be larger than the max residue code (current: %d); requires 1(gap) + alphabet size + 1(unknown residue)' % (dist_mat.shape[0], vint.max()))
     return pairs_score(vint, combinations(range(vint.shape[0]), 2), dist_mat)
 
-def part_sp_score(vint, split, dist_mat=UNIF_CODON_DIST):
+def part_sp_score(vint, split, dist_mat):
     assert len(split) == 2
     return pairs_score(vint, product(*split), dist_mat)
 
@@ -120,7 +126,7 @@ def annotate_summary(ax, values):
 PLOTS = ['gap_prop', 'entropy', 'gap_entropy', 'al', 'sp_score']
 COMP_PLOTS = ['manhattan', 'pearson', 'split_pairs_score']
 
-def al_colorbar(ax, cax=None, orientation='vertical', **kwargs):
+def al_colorbar(ax, cax=None, altype='nucl', orientation='vertical', **kwargs):
     kwargs = {'shrink':0.05, **kwargs}
     im = ax.images[-1]
     cbar = plt.colorbar(im, ax=(ax if cax is None else None),
@@ -129,7 +135,7 @@ def al_colorbar(ax, cax=None, orientation='vertical', **kwargs):
     if cax is not None and orientation == 'horizontal':
         cax_pos = cax.get_position()
         cax.set_position(cax_pos.shrunk_to_aspect(1/20))
-    cbar.set_label('residues')
+    cbar.set_label('Residues')
     #ticks = cbar.get_ticks()
     #cbar.set_ticks()
     #nticks = len(ticks)
@@ -137,45 +143,59 @@ def al_colorbar(ax, cax=None, orientation='vertical', **kwargs):
                  cbar.ax.get_ylim(), cbar.ax.get_xlim())
     logger.debug('norm.vmax = %g; norm.N = %g; cmap.N = %g',
                  im.norm.vmax, im.norm.N, im.cmap.N)
-    if im.norm.vmax > 5:
+    gap = GAPS[0]
+    if altype=='nucl':
+        residues = NUCLEOTIDES
+        rescode = NUCL2INT
+    elif altype=='aa':
+        residues = AA
+        rescode = AA2INT
+    elif altype=='codon':
+        residues = CODONS + list(CODONS_STOP)
+        rescode = CODON2INT
+        gap *= 3
+
+    ticks = np.arange(1, len(residues)+1)
+    ticklabels = residues
+    # Put multiple residues in one label if redundant colors.
+    if isinstance(im.cmap, mpl.colors.ListedColormap):
         sep = '\n' if orientation=='horizontal' else ' '
-        cmax = im.cmap.N
-        ticklabels = []
-        prev_codon_col = im.cmap(im.norm(0))
-        ticks = []
-        logger.debug('codon_col 0: %s', prev_codon_col)
-        for i, codon in enumerate(CODONS+STOPS, start=1):  #CODON2INT.items()
-            codon_col = im.cmap(im.norm(i))
-            #logger.debug('codon %d %r col %s; != %s', i, codon, codon_col,
-            #             codon_col != prev_codon_col)
-            if codon_col == prev_codon_col:
-                ticklabels[-1].append(codon)
+        ticklabels = [[]]
+        prev_resid_col = tuple(im.cmap(im.norm(1)))
+        ticks = [1]
+        logger.debug('residue color 0: %s', prev_resid_col)
+        for i, resid in enumerate(residues, start=1):
+            if rescode[resid] != i:
+                raise RuntimeError('Residue integer code is mismatched! Wrong color legend.')
+
+            resid_col = tuple(im.cmap(im.norm(i)))
+            #logger.debug('resid %d %r col %s; != %s', i, resid, resid_col,
+            #             resid_col != prev_resid_col)
+            if resid_col == prev_resid_col:
+                ticklabels[-1].append(resid)
             else:
-                ticks.append(i-1)
-                try:
-                    ticklabels[-1] = sep.join(ticklabels[-1])
-                except IndexError:
-                    pass
-                ticklabels.append([])
-                prev_codon_col = codon_col
-        ticks.append(i-1)
-        if not ticklabels[-1]:
-            ticklabels[-1].append(codon)
+                ticks.append(i)
+                #try:
+                ticklabels[-1] = sep.join(ticklabels[-1])
+                #except IndexError:
+                #    pass
+                ticklabels.append([resid])
+                prev_resid_col = resid_col
+        #ticks.append(i)
+        #if not ticklabels[-1]:
+        #    ticklabels[-1].append(resid)
         ticklabels[-1] = sep.join(ticklabels[-1])
-        logger.debug('Setting %d ticks %s, %d labels %s', len(ticks), ticks,
+        logger.debug('Pooled %d ticks %s, %d labels %s', len(ticks), ticks,
                      len(ticklabels), ticklabels)
-        cbar.set_ticks(ticks)
-        cbar.set_ticklabels(ticklabels)  # [NACODON] + CODONS
-        logger.debug('cbar lim= %s; ylim= %s; xlim= %s', cbar.get_clim(),
-                     cbar.ax.get_ylim(), cbar.ax.get_xlim())
-        #TODO
-        cbar.ax.text(1, -0.05, GAPS[0]*3, fontsize='x-small', clip_on=False) # under
-        #cbar.ax.annotate(GAPS[0]*3, (1, -0.05), xytext=(2, 0),
-        #                 textcoords='offset points',
-        #                 fontsize='x-small', annotation_clip=False) # under
-    else:
-        cbar.set_ticks(np.arange(len(NUCLEOTIDES))+0.5)
-        cbar.set_ticklabels(NUCLEOTIDES)
+    cbar.set_ticks(ticks)
+    cbar.set_ticklabels(ticklabels)
+    logger.debug('cbar lim= %s; ylim= %s; xlim= %s', cbar.get_clim(),
+                 cbar.ax.get_ylim(), cbar.ax.get_xlim())
+    #TODO
+    cbar.ax.text(1, -0.05, gap, fontsize='x-small', clip_on=False) # under
+    #cbar.ax.annotate(gap, (1, -0.05), xytext=(2, 0),
+    #                 textcoords='offset points',
+    #                 fontsize='x-small', annotation_clip=False) # under
     cbar.ax.tick_params(labelsize='x-small')
     return cbar
 
@@ -287,7 +307,7 @@ class AlignPlotter(object):
                                            'fontsize': 'x-small'}))
 
     @classmethod
-    def fromfile(cls, infile, format=None, nucl=False, allow_N=False,
+    def fromfile(cls, infile, format=None, altype='nucl', allow_N=False,
                  ungap=True, slice=None, records=None, recordsfile=None,
                  treefile=None, topology_only=False):
         align = AlignIO.read(infile,
@@ -297,7 +317,7 @@ class AlignPlotter(object):
                             )
 
         al_len = align.get_alignment_length()
-        if al_len % 3 and not nucl:
+        if altype == 'codon' and al_len % 3:
             logger.error("Not a codon alignment!")
 
         tree = None
@@ -337,21 +357,23 @@ class AlignPlotter(object):
 
         seqlabels = [record.name for record in align]
         # Convert matrix of codon/nucleotide strings to matrix of integers.
-        alint = al2int(align, nucl, allow_N)
+        alint = al2int(align, altype, allow_N)
 
         # ungap: remove columns being 100% gaps
         if ungap:
             alint = alint[:, alint.sum(axis=0) > 0]
 
         # Init and setup the class instance
-        valid_range = (1, 4) if nucl else (1, 64)
+        valid_range = (1, len(NUCLEOTIDES)) if altype=='nucl' else (1, 64) if altype=='codon' else (1,len(AA))
         instance = cls(alint, seqlabels, valid_range, tree, topology_only)
         instance.fromfile_params = {'infile': infile, 'format': format,
                                     'slice': (slstart, slend),
                                     'records': records}
         instance.align = align
         instance.al_len = al_len
-        instance.nucl = nucl
+        instance.altype = altype
+        instance.residue_distmat = make_unif_codon_dist() if altype=='codon' else (1 - np.eye(valid_range[1]+2))  #TODO: distance matrices
+        instance.residue_distmat[-1,:] = instance.residue_distmat[:,-1] = np.NaN
         instance.slstart = slstart
         return instance
 
@@ -361,6 +383,7 @@ class AlignPlotter(object):
         gap proportion, entropy-gap score, SP-score"""
 
         max_valid = self.valid_range[1]
+        
         al_freqs = freq_matrix(self.alint, minlength=(max_valid+2))
         gap_prop = al_freqs[0,:]
         invalid_prop = al_freqs[(max_valid+1):, :].sum(axis=0)
@@ -383,7 +406,7 @@ class AlignPlotter(object):
         self.entropy = freqs2entropy(self.freqs)
         #self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop[:, 1])
         self.gap_entropy = (1 - self.entropy) * (1 - self.gap_prop.sum(axis=0))
-        self.sp_score = sp_score(self.alint)
+        self.sp_score = sp_score(self.alint, self.residue_distmat)
 
         self.plotlist.extend(('gap', 'entropy', 'gap_entropy', 'sp'))
         self.plotdata.update(gap=(self.x, self.gap_prop,),
@@ -479,7 +502,7 @@ class AlignPlotter(object):
 
         self.part_manh_dist = np.abs(fmat1 - fmat2).sum(axis=0)
         self.part_pearson_c = pearson_coeff(cmat1, cmat2, axis=0)
-        self.part_sp_score = part_sp_score(self.alint, all_parts[:2])
+        self.part_sp_score = part_sp_score(self.alint, all_parts[:2], self.residue_distmat)
 
         self.plotlist.extend(('manh', 'pearson', 'part_sp'))
         self.plotdata.update(manh=(self.x, self.part_manh_dist,),
@@ -584,7 +607,7 @@ class AlignPlotter(object):
                         # Plot the colorbar below the tree
                         cax = plt.subplot2grid((rows,cols),(pos[0]+1, 0), fig=fig,
                                                aspect=20)
-                        al_colorbar(ax, cax)#, orientation='horizontal')
+                        al_colorbar(ax, cax, self.altype)#, orientation='horizontal')
                     pos = (pos[0]+1, pos[1])
                     logger.debug('rows,cols: (%d,%d); pos: %s; colspan: %d',
                                  rows, cols, pos, colspan)
@@ -594,7 +617,7 @@ class AlignPlotter(object):
         # On the last plot:
         if self.slstart:
             # Update the displayed xticklabels if start position > 0
-            slstart = self.slstart // 3 if not self.nucl else self.slstart
+            slstart = self.slstart // 3 if self.altype=='codon' else self.slstart
                 
             ax.set_xticklabels([(slstart + int(xt)) for xt in \
                                 ax.get_xticks()])
@@ -612,12 +635,12 @@ class AlignPlotter(object):
             self.fig.savefig(outfile, bbox_inches='tight', **kwargs)
 
 
-def plot_al_conservation(infile, format=None, nucl=False, allow_N=False,
+def plot_al_conservation(infile, format=None, altype='nucl', allow_N=False,
          ungap=True, records=None, recordsfile=None, treefile=None, slice=None,
          topology_only=False, compare_parts=None,
          compare_only=False, plotlist=None, figwidth=16, plotheight=4):
 
-    align_plot = AlignPlotter.fromfile(infile, format, nucl, allow_N, ungap,
+    align_plot = AlignPlotter.fromfile(infile, format, altype, allow_N, ungap,
                                        slice, records, recordsfile, treefile,
                                        topology_only)
     if logger.getEffectiveLevel() <= logging.DEBUG:
@@ -646,7 +669,7 @@ def main():
     parser.add_argument('-o', '--outfile')
     parser.add_argument('-f', '--format', help='Force format usage.' \
                         ' Can be any format accepted by Bio.alignIO')
-    parser.add_argument('-n', '--nucl', action='store_true',
+    parser.add_argument('-a', '--altype', choices=['nucl', 'aa', 'codon'],
                         help='Process per nucleotide position (instead of codon)')
     parser.add_argument('-N', '--allow-N', action='store_true',
                         help='Tolerate "N" nucleotides as NA value.')
@@ -654,7 +677,7 @@ def main():
                         help='Do not remove columns of gaps.')
     rec_g = parser.add_mutually_exclusive_group()
     rec_g.add_argument('-r', '--records',
-                        help='select records (coma-sep list of 0-based integers)')
+                        help='select records (comma-sep list of 0-based integers)')
     rec_g.add_argument('-R', '--recordsfile',
                         help='select records from a file (one record name per line)')
     rec_g.add_argument('-t', '--treefile',

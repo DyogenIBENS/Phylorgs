@@ -20,8 +20,10 @@ NUCL_AMBIGUOUS = {'R': set('AG'),
              'H': set('ACT'),
              'V': set('ACG')}
 
-AA = 'ABCDEFGHIKLMNPQRSTVWYZ'
+AA = 'ACDEFGHIKLMNPQRSTVWY'
 AA_UNKNOWN = 'X'
+AA_AMBIGUOUS = {'B': set('DN'), 'Z': set('EQ')}
+AA_NONSTANDARD = 'OU' # Pyrrolysine (Pyl) and Selenocysteine (Sec)
 CODONS_STOP = set(('TGA', 'TAG', 'TAA'))  # In standard alphabet
 #aa = {
 #      'A':        Ala        Alanine
