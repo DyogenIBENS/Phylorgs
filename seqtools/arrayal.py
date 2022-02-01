@@ -18,15 +18,15 @@ from seqtools.symbols import GAPS, NUCLEOTIDES, NUCL_UNKNOWN, NUCL_AMBIGUOUS, AA
 CODONS = [''.join(codon) for codon in product(*[NUCLEOTIDES]*3)
           if ''.join(codon) not in CODONS_STOP]
 NACODON = '---'
-CODON2INT = {codon: i for i, codon in enumerate([NACODON] + CODONS + list(CODONS_STOP))}
-NUCL2INT = {symbol: i for i, symbol in enumerate(NUCLEOTIDES, start=1)}
-AA2INT   = {symbol: i for i, symbol in enumerate(AA, start=1)}
+CODON2INT = {codon: np.uint8(i) for i, codon in enumerate(CODONS + list(CODONS_STOP), start=1)}
+NUCL2INT = {symbol: np.uint8(i) for i, symbol in enumerate(NUCLEOTIDES, start=1)}
+AA2INT   = {symbol: np.uint8(i) for i, symbol in enumerate(AA, start=1)}
 for converter_dict in (NUCL2INT, CODON2INT, AA2INT):
     converter_dict.update({symbol.lower(): i for symbol, i in converter_dict.items() if i})
 for symbol in GAPS:
-    CODON2INT[symbol*3] = 0
-    NUCL2INT[symbol]    = 0
-    AA2INT[symbol]      = 0
+    CODON2INT[symbol*3] = np.uint8(0)
+    NUCL2INT[symbol]    = np.uint8(0)
+    AA2INT[symbol]      = np.uint8(0)
 
 
 def make_unif_codon_dist():
@@ -108,7 +108,8 @@ def category2int(array, converter_dict, allow=None):
 def count_matrix(vint, minlength=66):
     """column-wise matrix of counts of integers"""
     #assert np.issubdtype(vint.dtype, int  # 
-    assert vint.dtype in (int, np.int64, np.int32, np.int16)
+    if not (vint.dtype == int or np.issubdtype(vint.dtype, np.integer)):
+        raise TypeError('Integer dtype is required')
     return np.stack([np.bincount(vint[:,i], minlength=minlength) \
                         for i in range(vint.shape[-1])], axis=-1)
 

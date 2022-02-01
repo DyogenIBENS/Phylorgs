@@ -65,6 +65,14 @@ EXT2FMT = {'.fa':    'fasta',
            '.nx':    'nexus',
            '.nex':   'nexus'}
 
+SLICE_REGEX = re.compile(r'(-?\d+)?:(-?\d+)?(?::(-?\d+)?)?$')
+
+
+def parse_slice(text, end=None):
+    m = SLICE_REGEX.match(text)
+    if not m:
+        raise ValueError('Invalid slice expression %r' % text)
+    return tuple(default if arg is None else int(arg) for arg,default in zip(m.groups(), (0, end, 1)))
 
 def filename2format(filename):
     _, ext = os.path.splitext(filename)
@@ -139,7 +147,7 @@ def al_colorbar(ax, cax=None, altype='nucl', orientation='vertical', **kwargs):
     #ticks = cbar.get_ticks()
     #cbar.set_ticks()
     #nticks = len(ticks)
-    logger.debug('cbar lim= %s; ylim= %s; xlim= %s', cbar.get_clim(),
+    logger.debug('cbar lim= %s; ylim= %s; xlim= %s', im.get_clim(),
                  cbar.ax.get_ylim(), cbar.ax.get_xlim())
     logger.debug('norm.vmax = %g; norm.N = %g; cmap.N = %g',
                  im.norm.vmax, im.norm.N, im.cmap.N)
@@ -175,21 +183,15 @@ def al_colorbar(ax, cax=None, altype='nucl', orientation='vertical', **kwargs):
                 ticklabels[-1].append(resid)
             else:
                 ticks.append(i)
-                #try:
                 ticklabels[-1] = sep.join(ticklabels[-1])
-                #except IndexError:
-                #    pass
                 ticklabels.append([resid])
                 prev_resid_col = resid_col
-        #ticks.append(i)
-        #if not ticklabels[-1]:
-        #    ticklabels[-1].append(resid)
         ticklabels[-1] = sep.join(ticklabels[-1])
         logger.debug('Pooled %d ticks %s, %d labels %s', len(ticks), ticks,
                      len(ticklabels), ticklabels)
     cbar.set_ticks(ticks)
     cbar.set_ticklabels(ticklabels)
-    logger.debug('cbar lim= %s; ylim= %s; xlim= %s', cbar.get_clim(),
+    logger.debug('cbar lim= %s; ylim= %s; xlim= %s', im.get_clim(),
                  cbar.ax.get_ylim(), cbar.ax.get_xlim())
     #TODO
     cbar.ax.text(1, -0.05, gap, fontsize='x-small', clip_on=False) # under
@@ -232,7 +234,7 @@ class AlignPlotter(object):
 
         # { plot: [list of tuples(function, kwargs)] }
         plot_funcs = {'al':          [('imshow', {'aspect': 'auto'})], #(al_colorbar, {})],
-                      #'al':          [('pcolormesh',   {'edgecolors': 'None'}),
+                      #'al':          [('pcolormesh',   {'edgecolors': 'none', 'rasterized': True}),
                       #                ('invert_yaxis', {})],
                       #'gap':         default_step, #default_bar, "stackplot"
                       'gap':         [default_stacked],
@@ -282,7 +284,7 @@ class AlignPlotter(object):
         #cmap_size = valid_range[1] - valid_range[0] # If len(valid_range) > 1
         # Dark2, tab20b, tab20, Set1
         #FIXME: valid_range for codons should exclude the stops: (1,61)
-        cmap = plt.get_cmap('tab20b', valid_range[1] - valid_range[0] + 1) #, cmap_size)
+        cmap = plt.get_cmap('tab20b', valid_range[1] - valid_range[0] + 1).copy() #, cmap_size)
         cmap.set_over((0.2, 0.2, 0.2))
         cmap.set_under('w')
         # a norm is needed to set bounds!!!
@@ -295,7 +297,7 @@ class AlignPlotter(object):
         norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
         # Maybe a ListedColormap is better.
         self.plot_funcs['al'][0][1].update(cmap=cmap, norm=norm)
-        self.plot_properties['al']['yticks'] = np.arange(alint.shape[0])
+        self.plot_funcs['al'].append(('set_yticks', {'ticks': np.arange(alint.shape[0])}))
         #TODO: Add the *last* xtick showing alignment length.
         #self.plot_properties['al']['xlim'] = (0, alint.shape[1]) #pcolormesh
         self.plot_properties['al']['xlim'] = (-0.5, alint.shape[1]-0.5) #imshow
@@ -327,6 +329,8 @@ class AlignPlotter(object):
             if records:
                 record_order = [int(r) for r in records.split(',')]
                 records = None
+                if treefile:
+                    raise NotImplementedError('treefile with a selection of records (tree pruning is required).')
             elif recordsfile:
                 with open(recordsfile) as recf:
                     records = [line.rstrip() for line in recf]
@@ -344,14 +348,14 @@ class AlignPlotter(object):
             align = reorder_al(align, records, record_order)
 
         if slice:
-            slstart, slend = [int(pos) for pos in slice.split(':')]
-            if not nucl:
+            slstart, slend, slstep = parse_slice(slice) #[int(pos) for pos in slice.split(':')]
+            if altype == 'codon':
                 slstart *= 3
                 slend   *= 3
             if not (0 <= slstart < slend <= al_len):
                 raise IndexError("Slice indices (%s,%s) out of bounds." \
                                  % (slstart, slend))
-            align = align[:,slstart:slend]
+            align = align[:,slstart:slend:slstep]
         else:
             slstart, slend = None, None
 
@@ -440,17 +444,18 @@ class AlignPlotter(object):
         #xtext = x1 + (x1-x0) * 1.05
         x1, xtext = 1, 1.02
         hlines = []
+        nseq = self.alint.shape[0]
         for part_number, part in enumerate(self.parts, start=1):
-            ytext = np.mean(part) / self.alint.shape[0]
+            ytext = 1 - np.mean(part) / nseq  # substract from 1 because using 'axes fraction'
             ax.annotate(str(part_number), xy=(x1, ytext), xytext=(xtext, ytext),
                         xycoords='axes fraction', alpha=0.8)
             for row in part:
-                ax.annotate("", xy=(x1, (row+0.5)/self.alint.shape[0]),
+                ax.annotate("", xy=(x1, (nseq-0.5-row)/nseq),
                             xytext=(xtext, ytext),
                             xycoords='axes fraction',
                             arrowprops={'arrowstyle': '->', 'alpha':0.8},
                             alpha=0.8)
-            # if part is contiguous:
+            # Draw limits if part is contiguous:
             row0, row_end = min(part), max(part)+1
             if set(part) == set(range(row0, row_end)):
                 if row0 not in hlines:
@@ -473,6 +478,7 @@ class AlignPlotter(object):
             compare_parts = [part.rstrip(')').lstrip('(').split(',')
                              for part in compare_parts.split(';')]
         # Convert to the proper type
+        nseq = self.alint.shape[0]
         self.parts = []
         for part in compare_parts:
             parti = []
@@ -481,17 +487,26 @@ class AlignPlotter(object):
                     parti.append(int(subpart))
                 except ValueError:
                     try:
-                        parti.extend(range(*(int(i) for i in subpart.split(':'))))
+                        range_args = parse_slice(subpart, end=nseq)
+                        parti.extend(range(*range_args))
                     except ValueError:
                         label_reg = re.compile(subpart)
-                        parti.extend((i for i,lab in enumerate(self.seqlabels)
-                                      if label_reg.match(lab)))
+                        matched_labels = [i for i,lab in enumerate(self.seqlabels)
+                                          if label_reg.search(lab)]
+                        if not matched_labels:
+                            logger.warning('part regex has no match: %s', subpart)
+                        parti.extend(matched_labels)
             self.parts.append(parti)
+        logger.debug('parts = %s', self.parts)
 
         # The complementary sequences.
-        out_part = list(set(range(self.alint.shape[0]))
+        out_part = list(set(range(nseq))
                         .difference(set().union(*(self.parts))))
-        all_parts = self.parts + [out_part]
+        if not out_part:
+            logger.warning('Including all records in the partition is not necessary (the omitted records are automatically added in their own part)')
+            all_parts = self.parts
+        else:
+            all_parts = self.parts + [out_part]
 
         #assert len(self.parts) == 2
 
@@ -550,12 +565,14 @@ class AlignPlotter(object):
             gridspec_kw = {'width_ratios': [1, colspan]}
             # And hide alignment labels
             #self.plot_funcs['al'].append(('tick_params', {'label_left'}))
+            plotlist.remove('tree')
+            plotlist.insert(0, 'tree')
         else:
             rows = nplots
             cols = 1
             colspan = 1
             gridspec_kw = {}
-        logger.debug("subplots: %d, %d" % (rows, cols))
+        logger.debug("subplots: %d, %d cols" % (rows, cols))
         pos = (0,0)
         #ax = fig.add_subplot(rows, cols, pos, gridspec_kw=gridspec_kw)
         ax = plt.subplot2grid((rows,cols), pos, colspan=1, fig=fig)
@@ -618,16 +635,17 @@ class AlignPlotter(object):
         if self.slstart:
             # Update the displayed xticklabels if start position > 0
             slstart = self.slstart // 3 if self.altype=='codon' else self.slstart
-                
-            ax.set_xticklabels([(slstart + int(xt)) for xt in \
-                                ax.get_xticks()])
+            
+            xticks = ax.get_xticks()
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(['%g' % x for x in xticks+slstart])
 
         fig.tight_layout()
         self.fig, self.axes = fig, axes
 
 
     def display(self, outfile=None, **kwargs):
-        logger.debug('Displaying')
+        logger.info('Displaying')
         if outfile is None:
             plt.show(block=True)
             #print(clock())
@@ -652,9 +670,8 @@ def plot_al_conservation(infile, format=None, altype='nucl', allow_N=False,
     if plotlist is not None:
         plotlist = plotlist.split(',')
         if set(plotlist).intersection(('pars', 'tree', 'part_pars')):
-            assert treefile is not None, \
-                    "A treefile must be given to compute parsimony score or plot a tree."
-            # plotlist.remobe('pars') ## 'tree'
+            if treefile is None:
+                raise ValueError("A treefile must be given to compute parsimony score or plot a tree.")
             if 'tree' not in plotlist and 'al' in plotlist:
                 plotlist.insert(plotlist.index('al'), 'tree')
     align_plot.makefig(plotlist, figwidth, plotheight)
@@ -718,7 +735,7 @@ def main():
     if not outfile:
         plt.switch_backend('TkAgg')
 
-    plot_al_conservation(**vars(args)).display(outfile)
+    plot_al_conservation(**vars(args)).display(outfile, dpi=300)
 
 
 if __name__ == '__main__':
