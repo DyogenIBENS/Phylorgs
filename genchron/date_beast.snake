@@ -95,7 +95,7 @@ rule loganalyser:
     input: rules.beast.log.log
     output: '{subgenetree}_{align}_{beastparam}-summary.txt'
     shell:
-        'loganalyser {input} > {output}'
+        'loganalyser -q {input} > {output}'
 
 rule tree_annotate_times:
     input:

@@ -98,15 +98,22 @@ def ete3_to_ete3(tree):
 def BioPhylo_to_BioNexusTree(tree):
     raise NotImplementedError
 
-def BioNexusTrees_to_BioPhylo(ntrees, id_as_names=True):
+def BioNexusTrees_to_BioPhylo(ntrees, translate=None):
+    if translate:
+        untranslate = {taxon: str(tax_id) for tax_id, taxon in translate.items()}
     from Bio.Phylo.BaseTree import Clade, Tree
     trees = []
     for idx, ntree in enumerate(ntrees):
         nroot = ntree.node(ntree.root)
+        if nroot.data.taxon and translate:
+            nodename = untranslate[nroot.data.taxon]
+        else:
+            nodename = nroot.data.taxon
         root = Clade(branch_length=nroot.data.branchlength,
-                     name=str(nroot.id) if id_as_names else nroot.data.taxon,
+                     name=nodename,
                      confidence=nroot.data.support)
-        tree = Tree(root, id=idx, name=ntree.name)
+        tree = Tree(root, rooted=ntree.rooted, id=idx, name=ntree.name)
+        tree.weight = ntree.weight
         matching_clades = {nroot: root}  # nexus node -> Phylo.BaseTree.Clade
         queue = [nroot]
         while queue:
@@ -114,8 +121,12 @@ def BioNexusTrees_to_BioPhylo(ntrees, id_as_names=True):
             node = matching_clades.pop(nnode)
             nchildren = [ntree.node(ch_id) for ch_id in nnode.succ]
             for nchild in nchildren:
+                if nchild.data.taxon and translate:
+                    nodename = untranslate[nchild.data.taxon]
+                else:
+                    nodename = nchild.data.taxon
                 child = Clade(branch_length=nchild.data.branchlength,
-                             name=str(nchild.id) if id_as_names else nchild.data.taxon,
+                             name=nodename,
                              confidence=nchild.data.support)
                 child.comment = nchild.data.comment
                 matching_clades[nchild] = child
