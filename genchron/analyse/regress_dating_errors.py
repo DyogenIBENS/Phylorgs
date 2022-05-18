@@ -330,21 +330,21 @@ def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
 
 
 
-def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't'], compute_extra_ns=None):
+def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], compute_extra_ns=None):
     """Load ages dataframe, join with parent information, and compute the
     'robust' info.
 
     `compute_extra_ns`: a function that takes the ages.groupby('subgenetree')
                 object and output a dataframe to be joined with `ns` (dataset
                 specific statistics, one row per subgenetree).
-                if it produce a column named "treelink", this will be used to join `ts`.
+                if it produces a column named "treelink", this will be used to join `ts`.
                 (otherwise it joins on its index, i.e. the subgenetree values).
     """
     
-    beast_renames = {'height': 'age_beastS',
-                     'height_median': 'age_beastSmedian',
-                     'length': 'branch_beastS',
-                     'length_median': 'branch_beastSmedian',
+    beast_renames = {'height': 'age_beast',
+                     'height_median': 'age_beastmedian',
+                     'length': 'branch_beast',
+                     'length_median': 'branch_beastmedian',
                      'beast:dist': 'dist'}
 
     ages = pd.read_csv(ages_file, sep='\t', index_col=0)\
@@ -380,12 +380,15 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't'], compute
             ages[var+'_up'] = parsedrange[1]
         ages.drop(columns=rangevars, inplace=True)
 
-    logger.info("Shape ages: %s; has dup: %s" % (ages.shape, ages.index.has_duplicates))
+    logger.info("Shape ages: %s; has dup node names: %s; has dup (name,subgenetree): %s",
+                ages.shape, ages.index.has_duplicates, ages.set_index('subgenetree', append=True).index.has_duplicates)
+    #FIXME: upstream code should always index on (name,subgenetree), thus not be affected by duplicated names.
     n_nodes = ages.shape[0]
     ages_int = ages[ages.type != 'leaf']
-    logger.info("Shape ages internal nodes: %s; has dup: %s",
+    logger.info("Shape ages internal nodes: %s; has dup node names: %s; has dup (node,subgenetree): %s",
                 ages_int.shape,
-                ages_int.index.has_duplicates)
+                ages_int.index.has_duplicates,
+                ages_int.set_index('subgenetree', append=True).index.has_duplicates)
     n_nodes_int = (ages.type != 'leaf').sum()
 
     #TODO:
@@ -417,6 +420,9 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't'], compute
 
     orphans = ages_p._merge=='left_only'
     ages_orphans = ages_p[orphans]
+    # if --keeproot in generate_dNdStable: orphans are the root nodes;
+    # else they are the direct children of the roots that could be dated with MPL,
+    #      or if tabulate_ages_from_tree was used, any child of the root.
 
     logger.info("\nOrphans: %d\n" % (orphans.sum()))
     #display_html(ages_orphans.head())
@@ -433,7 +439,7 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't'], compute
                 ages_orphans.loc[~recognized_outgroups,
                                  ['age_%s' %m for m in measures]].isna().sum()\
                             .rename('Sum of NaNs').to_frame().T)
-    logger.warning('CHECK those orphan taxa (should all be outgroups sequences (could be duplicates from the ingroup taxa): %s.',
+    logger.warning('CHECK those orphan taxa (should all be unrecognized outgroups sequences (could be duplicates from the ingroup taxa): %s.',
                    ', '.join(orphan_taxa))
     
     e_nochild = set(ages.index) - set(ages.parent)  # expected
@@ -453,7 +459,11 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't'], compute
     # (doesn't have an is_outgroup_parent info)
 
     child_of_root = ages_p.root == ages_p.parent
+
+    # Ad hoc formatting: to find the ingroup root, assume that the subgenetree name is the ingroup name...
     ingroup_root = ages_p.index.to_series() == ages_p.subgenetree
+    if ingroup_root.sum() == 0:
+        logger.warning('ZERO ingroup root found (based on matching the subgenetree name)')
     #recognized_outgroups = (ages_p.is_outgroup == 1 | ages_orphans.is_outgroup_parent == 1)
     #to_remove = (~child_of_root & orphans
     #             | (ages_p.is_outgroup == 1)
@@ -464,11 +474,14 @@ def load_prepare_ages(ages_file, ts, measures=['dist', 'dS', 'dN', 't'], compute
     to_remove = (~ingroup_root & orphans
                  | (ages_p.is_outgroup == 1)
                  | ages_p.is_outgroup_parent == 1)
+    if (to_remove == child_of_root).all():
+        logger.error('ALL root children will be removed')
 
     ages_p = ages_p.loc[~to_remove].copy(deep=False)
+    #ages_p = ages_p.loc[~to_remove].set_index('subgenetree', append=True, drop=False)
     if ages_p.index.has_duplicates:
-        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent',
-                         'median_age_'+measures[0], 'branch_dS', 'age_dS']
+        debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent']
+        debug_columns += [s+measures[0] for s in ('branch_', 'age_')]
         logger.error("Failed to remove index duplicates in 'ages_p':\n%s\n...",
                      ages_p.loc[ages_p.index.duplicated(), debug_columns].head(10))
 
@@ -487,7 +500,7 @@ def orig_extra_ns(sgg):
     return sgg.subgenetree.first().rename('ensembl_version', inplace=False)\
              .str.extract(r'^[A-Z][a-zA-Z_]+ENSGT00(\d\d)0.*').astype(int)
 
-def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't'], compute_extra_ns=None):
+def add_robust_info(ages_p, ts=None, measures=['dist', 'dS', 'dN', 't'], compute_extra_ns=None):
     """
     Compute Number of duplications/speciation per tree,
     and additional tree specific statistics.
@@ -551,22 +564,25 @@ def add_robust_info(ages_p, ts, measures=['dist', 'dS', 'dN', 't'], compute_extr
 
     # merge tree stats to select robust trees
     merged_ns = ['Ndup', 'Nspe']
-    linktree = None
+    linktree = None  # merge on index by default
     if 'linktree' in ns:
         linktree = 'linktree'
         merged_ns.append(linktree)
     
-    nsts = ns[merged_ns].join(ts[['really_robust', 'aberrant_dists',
-                                  'rebuilt_topo']],
-                              on=linktree, sort=False)  # Is this useful?
-    if np.all(nsts.really_robust.isna()):
-        msg = 'Merging ns with ts failed: zero common tree?'
-        linked_ts = ts[linktree] if linktree else ts.index.to_series()
-        pasted_heads = '\n'.join(line1 + '\t' + line2 for line1,line2 in
-                                 zip(str(ns.index.to_series().head()).split('\n'),
-                                     str(linked_ts.head()).split('\n')))
-        logger.error('%s Check:\nns.index\tts[%s]\n%s', msg, linktree, pasted_heads)
-        raise ValueError(msg)
+    if ts is None:
+        nsts = ns[merged_ns]
+    else:
+        nsts = ns[merged_ns].join(ts[['really_robust', 'aberrant_dists',
+                                      'rebuilt_topo']],
+                                  on=linktree, sort=False)  # Is this useful?
+        if np.all(nsts.really_robust.isna()):
+            msg = 'Merging ns with ts failed: zero common tree?'
+            linked_ts = ts[linktree] if linktree else ts.index.to_series()
+            pasted_heads = '\n'.join(line1 + '\t' + line2 for line1,line2 in
+                                     zip(str(ns.index.to_series().head()).split('\n'),
+                                         str(linked_ts.head()).split('\n')))
+            logger.error('%s Check:\nns.index\tts[%s]\n%s', msg, linktree, pasted_heads)
+            raise ValueError(msg)
     ages_treestats = pd.merge(ages_p.drop('_merge', axis=1),
                               nsts,
                               how='left',
@@ -647,8 +663,8 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
                               ):
     # 'consecutive_zeros_dS==0'
     # Merge control dates
-    ages_forcontrol = ages.query(control_condition)
-    logger.info("%d nodes from robust trees", ages_forcontrol.shape[0])
+    ages_forcontrol = ages if not control_condition else ages.query(control_condition)
+    logger.info("%d nodes from control trees", ages_forcontrol.shape[0])
 
     age_measures = ['age_'+m for m in measures]
     median_age_measures = ['median_age_'+m for m in measures]
@@ -697,8 +713,13 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
     # calibrated | branch_dS.isna()
     # Should be nodes whose parent node is the root.
     debug_columns = ['parent', 'subgenetree', 'taxon', 'taxon_parent'] \
-                    + median_age_measures \
-                    + ['branch_dS', 'age_dS']
+                    + median_age_measures
+    if 'dist' in measures:
+        debug_columns += ['branch_dist', 'age_dist']
+    elif 'dS' in measures:
+        debug_columns += ['branch_dS', 'age_dS']
+    elif 'beast' in measures:
+        debug_columns += ['branch_beast', 'age_beast']
     if invalid_nodes.any():
         #assert (ages_controled[invalid_taxon_parent].parent == \
         #        ages_controled[invalid_taxon_parent].root).all()
@@ -1006,8 +1027,6 @@ def lineage_evolutionary_rates(anc, ages_file,
     ts = load_stats_tree(stats_tmpl % ('tree', anc))
     aS = load_stats_al(stats_tmpl % ('al', anc))
 
-    dist_measures = ['branch_%s' % m for m in measures]
-
     ages, ns = load_prepare_ages(ages_file, ts, measures)
     ages = pd.merge(ages, aS.join(ns, how='outer'),
                     left_on='subgenetree', right_index=True, sort=False,
@@ -1025,6 +1044,8 @@ def lineage_evolutionary_rates(anc, ages_file,
     age_analysis = age_analysis_data(ages_controled,
                             ages_controled_withnonrobust,
                             ns, control_ages, control_brlen, mean_errors=None)
+
+    dist_measures = ['branch_%s' % m for m in measures]
     return (age_analysis,) + lineage_evolutionary_rates_fromdata(age_analysis, dist_measures, control_names)
 
 
@@ -1531,15 +1552,31 @@ class age_analysis_data(object):
                 setattr(self, k, v)
 
 
-def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts,
+def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts=None,
                        measures=['dS', 'dist', 'dN', 't'],
                        control_names=['timetree'], compute_extra_ns=None, out=None):
     #, aS, cs, clS=None
     ages, ns = load_prepare_ages(ages_file, ts, measures, compute_extra_ns)
+    available_robust_info = set(ages.columns.intersection(('really_robust', 'aberrant_dists')))
+    if len(available_robust_info) < 2:
+        logger.warning('Available robustness info (%s) is lacking %s',
+                       ','.join(available_robust_info),
+                       ','.join(set(('really_robust', 'aberrant_dists')) - available_robust_info))
+
+    control_condition_list = []
+    if 'really_robust' in available_robust_info:
+        control_condition_list.append('really_robust')
+    if 'aberrant_dists' in available_robust_info:
+        control_condition_list.append('(aberrant_dists == 0)')
+    control_condition = ' & '.join(control_condition_list)
+    
     ages_controled_withnonrobust, control_ages, control_brlen =\
         add_control_dates_lengths(ages, phyltree, control_ages_CI, measures,
-                                  control_names=control_names)
-    ages_controled = ages_controled_withnonrobust.query('really_robust & aberrant_dists == 0').copy(deep=False)
+                                  control_condition, control_names=control_names)
+    if control_condition:
+        ages_controled = ages_controled_withnonrobust.query(control_condition).copy(deep=False)
+    else:
+        ages_controled = ages_controled_withnonrobust
     unexpected_branches, lost_branches = check_control_dates_lengths(
                                                 control_brlen, phyltree, root,
                                                 measures, out=out)
@@ -1853,7 +1890,7 @@ def check_nan(df, description=None, out=None):
     if isinstance(df, pd.Series):
         df = df.to_frame()
     print('%s -> Any NA: %s' % (description, df.isna().sum(axis=0).any()), file=out)
-    print('%s -> *All* NA: %s' % (description, df.columns[df.isna().all()]), file=out)
+    print('%s -> *All* NA: %s' % (description, df.columns[df.isna().all()].tolist()), file=out)
     print('Shape %s: %s' % (description, df.shape), file=out)
     na_rows = df.isna().any(axis=1)
     if na_rows.any():
@@ -1891,15 +1928,17 @@ def check_dupindex(df, description=None, out=None):
                        n_dup_rows, len(dup_cols), dup_cols.tolist())
 
 def check_constants(df, description=None, out=None):
+    #dfnum = df.select_dtypes('number')
+    #dfbool = df.select_dtypes('bool').astype(np.uint8)
     df = df.select_dtypes(['number', 'bool'])
     with warnings.catch_warnings(record=True) as ws:
-        constant_vars = df.columns[(df.agg(np.ptp) == 0)].tolist()
-    for w in ws:
-        if not (issubclass(w.category, FutureWarning)
-                and ("Method .ptp is deprecated and will be removed"
-                     in str(w.message))):
-            # Then resend the warning
-            warnings.warn(w.category(w.message))
+        constant_vars = df.columns[(df.nunique() == 0)].tolist()
+    #for w in ws:
+    #    if not (issubclass(w.category, FutureWarning)
+    #            and ("Method .ptp is deprecated and will be removed"
+    #                 in str(w.message))):
+    #        # Then resend the warning
+    #        warnings.warn(w.category(w.message))
     if constant_vars:
         logger.warning('Constant features: %s', ' '.join(constant_vars))
     return constant_vars
@@ -2793,7 +2832,7 @@ class fullRegression(object):
         good_features = [ft for ft in inde_features
                                                 if ft not in set(bad_props)]
 
-        var_ranges = a_n_inde2[good_features].agg(np.ptp)
+        var_ranges = a_n_inde2[good_features].max(axis=0) - a_n_inde2[good_features].min(axis=0)
         
         #check_constants(a_n_inde2[inde_features2])
         print('Check for newly introduced constant variables:\n',
@@ -3407,8 +3446,8 @@ class full_dating_regression(fullRegression):
         for setting, rate_args in named_rate_settings.items():
             print('### Compute rates with setting %r and measures %s.'
                     % (setting, ','.join(self.measures)), file=self.out)
-            kwargs = {'branchtime': 'median_brlen_dS',
-                      'taxon_age': 'median_age_dS',
+            kwargs = {'branchtime': 'median_brlen_%s' % self.measures[0],
+                      'taxon_age': 'median_age_%s' % self.measures[0],
                       'dist_measures': dist_measures,  # defaults kwargs
                       **rate_args}
         #display_html('<h3>Compute rates</h3>', raw=True)

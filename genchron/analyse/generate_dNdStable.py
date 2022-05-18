@@ -245,9 +245,14 @@ def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'
                                                           getattr(srcnode, rawfeature)),
                                           rawfeature)
                                 )
-                    except AttributeError:
+                    except AttributeError as err:
                         if not srcnode.is_root():
-                            raise
+                            msg = err.args[0] + ' at %r' % srcnode.name
+                            if srcnode.is_leaf():
+                                logger.warning('AttributeError:'+msg)
+                            else:
+                                err.args = (msg,) + err.args[1:]
+                                raise
 
                 node.add_features(**newfeatures)
                 if srcclade > clade:
@@ -874,7 +879,7 @@ def process(resultfile, ensembl_version, phyltree, replace_nwk='.mlc', replace_b
     logger.debug('todate function: %s', todate.__name__)
 
     def this_get_taxon(node):
-        return get_taxon(node, ensembl_version)
+        return get_taxon(node, ANCGENE2SP, ensembl_version)
     
     def get_eventtype(node, subtree):
         if node.is_leaf():
@@ -1069,6 +1074,7 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
                 if not isinstance(err, KeyboardInterrupt) and ignore_errors:
                     logger.error("Skip %r #%d: %r", resultfile, ndataset, err)
                 else:
+                    logger.error("At %r #%d: %r", resultfile, ndataset, err)
                     raise
     print()
 

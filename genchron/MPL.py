@@ -517,7 +517,7 @@ def bound_average(fulltree, calibration, todate=isdup,
     for node in fulltree.traverse('postorder'):
         scname = node.name
         debug_msg = "* %s: " % scname
-        ### DISCARD all dup just after the root speciation/duplication.
+        ### DISCARD all uncalibrated nodes just after the root speciation/duplication.
         if node.is_root() and not keeproot:
             logger.debug(debug_msg + "Root (discard)")
             continue
