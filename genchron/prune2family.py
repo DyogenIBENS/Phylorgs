@@ -19,7 +19,20 @@ try:
 except ImportError:
     import argparse
 
+from copy import copy
+
+import ete3
+import LibsDyogen.myPhylTree as PhylTree
+
+from dendro.parsers import read_multinewick, iter_as_ete3
+from genomicustools.identify import ultimate_seq2sp
+from dendro.reconciled import make_ancgene2sp, split_species_gene
+from dendro.bates import iter_distleaves
+from dendro.trimmer import thin_ete3 as thin
+
 import logging
+logger = logging.getLogger(__name__)
+
 import multiprocessing as mp
 try:
     from multiprocessing_logging import install_mp_handler
@@ -27,24 +40,6 @@ except ImportError:
     logger.warning('multiprocessing_logging module not found, your stderr logs will likely be messed up.')
     def install_mp_handler(logger):
         pass
-
-from copy import copy
-
-import ete3
-import LibsDyogen.myPhylTree as PhylTree
-
-from dendro.parsers import read_multinewick, iter_from_ete3
-from genomicustools.identify import ultimate_seq2sp
-from dendro.bates import iter_distleaves
-from dendro.trimmer import thin_ete3 as thin
-
-logger = logging.getLogger(__name__)
-
-#stdoutlog = logging.getLogger(__name__ + '.stdout')
-#stdouth = logging.StreamHandler(stdout)
-#stdouth.setFormatter(logging.Formatter("%(message)s"))
-#stdoutlog.addHandler(stdouth)
-#stdoutlog.setLevel(logging.INFO)
 
 
 ENSEMBL_VERSION = 85
@@ -55,8 +50,6 @@ ANCGENE_START = 'ENSGT'
 ANCGENE2SP_PATTERN = r'([A-Z][A-Za-z_.-]+)(%s.*)$'
 ANCGENE2SP = re.compile(ANCGENE2SP_PATTERN % ANCGENE_START)
 RENAME_ROOT_SUBST = r's/^({descendants})(?=ENSGT|\b)/{ancestor}/'  # used to replace '{descendants}' by `ancestor` in ancestor_regexes. Customise in order to avoid duplicated outnames.
-
-#SPLIT_SPECIES_GENE = re.compile()
 
 def parse_substitution_expr(subst):
     """Parse sed-like substitution expression: s/old/new/.
@@ -70,18 +63,6 @@ def parse_substitution_expr(subst):
 
 def print_if_verbose(*args, **kwargs):
     print(*args, **kwargs)
-    #stdoutlog.info(*args, **kwargs)
-
-
-def split_species_gene(nodename, ancgene2sp):
-    match = ancgene2sp.match(nodename)
-    try:
-        taxon, genename = match.groups()
-        taxon = taxon.replace('.', ' ')
-    except AttributeError:
-        taxon = None
-        genename = nodename
-    return taxon, genename
 
 
 def parse_species_genename(child, get_species, split_ancestor):
@@ -216,25 +197,6 @@ def insert_missing_spe(parent_sp, ancestor, genename, parent_genename,
     # return false if no node was added
     #return False
     return []
-
-
-def add_species_nodes_back(tree, diclinks, ages=None):
-    """WRONG. DO NOT USE. Use `insert_species_nodes_back`
-    Add missing species ancestors in gene tree"""
-    # TODO: conserve branch length
-    # Iterate from leaves to root
-    for node in tree.iter_descendants("postorder"):
-        if node.is_leaf():
-            ancestor = convert_gene2species(node.name)
-            genename = node.name
-        else:
-            ancestor, genename = split_species_gene(node.name, ancgene2sp)
-        
-        parent_node = node.up
-        parent_ancestor, parent_genename = split_species_gene(parent_node.name, ancgene2sp)
-
-        insert_missing_spe(parent_ancestor, ancestor, genename, parent_genename,
-                           parent_node, node, diclinks, ages)
 
 
 def suffixes_ok(parent, child, event): # ~~> genomicustools/dendro?
@@ -888,7 +850,7 @@ def save_subtrees(treenb, treefile, ancestor_descendants, ancestor_regexes, #anc
         #FIXME: should not allow stdin here:
         if treefile == '-': treefile = '/dev/stdin'
         #try:
-        tree, *extratrees = iter_from_ete3(treefile, format=1)
+        tree, *extratrees = iter_as_ete3(treefile, format=1)
         #except ete3.parser.newick.NewickError as err:
         #    err.args = (err.args[0] + 'ERROR with treefile %r ...' % treefile[:50],)
         #    raise
@@ -1133,12 +1095,7 @@ def parallel_save_subtrees(treefiles, ancestors, ncores=1, outdir='.',
         def split_ancestor(node):
             return node.S.replace('.', ' '), node.name
     else:
-        ancgene2sp = re.compile(r'('
-                            + r'|'.join(list(phyltree.listSpecies) + 
-                                        sorted(phyltree.listAncestr,
-                                               key=lambda a:len(a),
-                                               reverse=True)).replace(' ','\.')
-                            + r')([^a-z].*|)$')
+        ancgene2sp = make_ancgene2sp(phyltree.root, phyltree)
 
         def get_species(node):
             return ultimate_seq2sp(node.name, ensembl_version), node.name

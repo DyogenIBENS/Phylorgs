@@ -20,7 +20,9 @@ import LibsDyogen.myPhylTree as PhylTree
 from UItools.autoCLI import make_subparser_func
 from genomicustools.identify import SP2GENEID, \
                                     convert_gene2species
-from dendro.reconciled import get_taxon, \
+from dendro.reconciled import make_ancgene2sp, \
+                              split_species_gene, \
+                              get_taxon, \
                               get_taxon_treebest, \
                               infer_gene_event_taxa
 from dendro.bates import iter_distleaves
@@ -32,7 +34,6 @@ from seqtools.arrayal import reorder_al, get_position_stats
 from phylorg import parsimony_score
 from pamliped.codemlparser2 import parse_mlc
 from genchron.find_non_overlapping_codeml_results import list_nonoverlapping_NG
-from genchron.prune2family import split_species_gene
 from seqtools.compo_freq import get_seq_counts
 from seqtools.gblocks_parser import parse_gb_html
 from seqtools.fillpositions import parse_seqranges
@@ -66,7 +67,9 @@ SUBTREE_TEMPLATE = '{ancestor}{genetree}*'
 
 def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
                             subtreesdir='subtreesCleanO2',
-                            glob_template=GLOB_TEMPLATE, exclude=None):
+                            glob_template=GLOB_TEMPLATE,
+                            wildcard_pattern=SUFFIX_PATTERN,
+                            exclude=None):
     #TODO: remove arguments filesuffix, rootdir, subtreesdir in favor of using
     # only glob_template.
     glob_template = glob_template.format(genetree='{0}',
@@ -77,11 +80,12 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
     subtree_template = SUBTREE_TEMPLATE.replace('*', '{subtreesuffix}')
     countlines = 0
     countfiles = 0
+    readfiles = 0
     for line in genetreelistfile:
         countlines += 1
         genetree = line.rstrip()
         files_pattern = glob_template.format(genetree)
-        files_reg = re.compile(re.escape(files_pattern).replace('\\*', SUFFIX_PATTERN))
+        files_reg = re.compile(re.escape(files_pattern).replace('\\*', wildcard_pattern))
         exclude_reg = exclude if exclude is None else re.compile(exclude)
 
         logger.info("pattern: '%s' '%s'", files_pattern, files_reg.pattern)
@@ -99,10 +103,11 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
                 subtree = subtree_template.format(ancestor=ancestor,
                                                   genetree=genetree,
                                                   subtreesuffix=subtreesuffix)
+                readfiles += 1
                 logger.debug('next file: %s', subtreefile)
                 yield subtreefile, subtree, genetree
 
-    logger.info('%d lines, %d subtrees' % (countlines, countfiles))
+    logger.info('%d lines, %d subtrees, %d read' % (countlines, countfiles, readfiles))
 
 
 def get_children(tree, node):
@@ -179,7 +184,7 @@ def get_al_stats(genetreelistfile, ancestor, phyltreefile, rootdir='.',
 
             ## By nucleotide column, then by codon.
             for nucl, minlength in [(True,6), (False,66)]:
-                _, entropy, alint = get_position_stats(al, altype=('nucl' if nucl else 'codon'), allow_N)
+                _, entropy, alint = get_position_stats(al, ('nucl' if nucl else 'codon'), allow_N)
 
                 pars_score = parsimony_score(alint, tree, seqlabels,
                                              minlength=minlength,
@@ -286,16 +291,6 @@ def per_node_events(tree, phyltree, aberrant_dist=10000,
     #return tuple(sure_events[e] for e in events) + \
     #       tuple(only_treebest_events[e] for e in events)
     return sure_events, only_treebest_events, aberrant_dists, rebuilt_topo
-
-
-def make_ancgene2sp(ancestor, phyltree):
-    return re.compile(r'('
-                      + r'|'.join(re.escape(s) for s in
-                                  list(phyltree.species[ancestor]) +
-                                  sorted(phyltree.getTargetsAnc(ancestor),
-                                         key=lambda a:len(a),
-                                         reverse=True)).replace(' ', '.')
-                      + r')([^a-z].*|)$')
 
 
 def find_ingroup(tree, ancestor, phyltree, ensembl_version, outgroupsize=2,
@@ -980,31 +975,35 @@ def read_beastsummary(filename, convert=None):
 def get_beast_stats(genetreelistfile, ancestor, 
                     rootdir='.', subtreesdir='subtreesCleanO2',
                     glob_template=GLOB_TEMPLATE,
-                    filesuffix='_beastS-summary.txt', ignore_error=True, **kwargs):
+                    filesuffix='_beastS-summary.txt', wildcard_pattern=SUFFIX_PATTERN,
+                    ignore_error=True, **kwargs):
     """Data removed from alignment with Gblocks/Hmmcleaner"""
     if kwargs:
         logger.warning('Ignored kwargs: %s', kwargs)
-    stats_header = ['%s_%s' % (stat, stype)
-                    for stat in ('posterior', 'likelihood', 'treeL_12', 'treeL_3',
-                                 'TreeHeight', 'gammaShape', 'rateAG',
-                                 'ucldMean_12', 'ucldMean_3', 'ucldStdev_12', 'ucldStdev_3',
-                                 'rate_12_mean', 'rate_12_var', 'rate_3_mean', 'rate_3_var',
-                                 'birthRateY')  # 'mrca_age_primates', 'mrca_age_simii'
-                    for stype in ('mean', 'stdev', 'med')]  # Mean,std over the iterations.
-
+    var_shortnames = ('posterior', 'likelihood', 'treeL_12', 'treeL_3',
+                      'TreeHeight', 'gammaShape', 'rateAG',
+                      'ucldMean_12', 'ucldMean_3', 'ucldStdev_12', 'ucldStdev_3',
+                      'rate_12_mean', 'rate_12_var', 'rate_3_mean', 'rate_3_var',
+                      'birthRateY') # 'mrca_age_primates', 'mrca_age_simii'
     select_vars = ('posterior', 'likelihood', 'treeLikelihood.myalignment_1,2',
                    'treeLikelihood.myalignment_3',
                    'TreeHeight', 'gammaShape', 'rateAG',
                    'ucldMean.1,2', 'ucldMean.3', 'ucldStdev.1,2', 'ucldStdev.3',
                    'rate.1,2.mean', 'rate.1,2.variance', 'rate.3.mean',
                    'rate.3.variance', 'birthRateY')
+
+    stats_header = ['%s_%s' % (stat, stype)
+                    for stat in var_shortnames
+                    for stype in ('mean', 'stdev', 'med')]  # Mean,std over the iterations.
+
     print('\t'.join(['subtree', 'genetree'] + stats_header))
     for beastsummary, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
                                                              ancestor,
                                                              filesuffix,
                                                              rootdir,
                                                              subtreesdir,
-                                                             glob_template):
+                                                             glob_template,
+                                                             wildcard_pattern):
         try:
             #if not op.exists(beastsummary):
             #    output = [None]*len(stats_header)
@@ -1081,6 +1080,8 @@ if __name__ == '__main__':
     beaststats_parser = subp.add_parser('beast', parents=[parent_parser], aliases=['be'])
     beaststats_parser.add_argument('-S', '--filesuffix', default='_beastS-summary.txt',
                              help='file suffix of the globbing pattern [%(default)s]')
+    beaststats_parser.add_argument('-w', '--wildcard-pattern', default=SUFFIX_PATTERN,
+                             help='allowed pattern for the wildcard [%(default)s]')
     beaststats_parser.set_defaults(func=make_subparser_func(get_beast_stats))
     familystats_parser = subp.add_parser('family', parents=[parent_parser], aliases=['fam'])
     familystats_parser.set_defaults(func=make_subparser_func(get_family_stats))

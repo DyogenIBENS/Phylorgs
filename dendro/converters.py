@@ -4,7 +4,7 @@
 (ete3, LibsDyogen, scipy.hclust.linkage...)"""
 
 
-from dendro.bates import rev_dfw_descendants
+from dendro.bates import rev_dfw_descendants, dfw_descendants_generalized
 
 
 def get_data(tree, nodedist):
@@ -29,7 +29,7 @@ def ete3_to_linkage(tree):
         children_is = [node_is.pop(ch) for ch,_ in children_dists]
         Z.append([])
 
-        
+
 def ProtTree_to_ete3(prottree):
     import ete3
     tree = ete3.Tree(name=prottree.root, dist=0)
@@ -96,9 +96,31 @@ def ete3_to_ete3(tree):
     return tree
 
 def BioPhylo_to_BioNexusTree(tree):
-    raise NotImplementedError
+    from Bio.Nexus.Trees import Tree, Nodes, NodeData
+    from dendro.any import BioPhylo
+
+    ntree = Tree(name=tree.name, rooted=tree.rooted, weight=tree.weight)
+    root = ntree.node(0)
+    root.set_data(NodeData(taxon=tree.root.name,
+                           branchlength=tree.root.branch_length,
+                           support=tree.root.confidence,
+                           comment=tree.root.comment))
+
+    node2ids = {tree.root: 0}
+    for parent, children in dfw_descendants_generalized(tree, BioPhylo.get_children):
+        parent_id = node2ids[parent]
+        for child in children:
+            new = Nodes.Node(NodeData(taxon=child.name,
+                                      branchlength=child.branch_length,
+                                      support=child.confidence,
+                                      comment=child.comment))
+
+            node2ids[child] = ntree.add(new, parent_id)
+    return ntree
+
 
 def BioNexusTrees_to_BioPhylo(ntrees, translate=None):
+    """If a translate dict is given, encode node labels by integer ids"""
     if translate:
         untranslate = {taxon: str(tax_id) for tax_id, taxon in translate.items()}
     from Bio.Phylo.BaseTree import Clade, Tree
@@ -136,14 +158,20 @@ def BioNexusTrees_to_BioPhylo(ntrees, translate=None):
     return trees
 
 
+def One_BioNexusTree_to_BioPhylo(ntree):
+    return BioNexusTrees_to_BioPhylo([ntree])[0]
+
+
 converterchoice = {'PhylTree': {'Ete3': PhylTree_to_ete3},
                    'ProtTree': {'Ete3': ProtTree_to_ete3},
-                   'Ete3': {'Ete3': ete3_to_ete3}}
+                   'Ete3': {'Ete3': ete3_to_ete3},
+                   'BioPhylo': {'BioNexus': BioPhylo_to_BioNexusTree},
+                   'BioNexus': {'BioPhylo': One_BioNexusTree_to_BioPhylo}}
 for from_, todict in list(converterchoice.items()):
     for to_, func in list(todict.items()):
         todict[to_.lower()] = func
     converterchoice[from_.lower()] = todict
-converterchoice['phyltree']['ete3_f1'] = converterchoice['prottree']['ete3']
+converterchoice['phyltree']['ete3_f1'] = converterchoice['phyltree']['ete3']
 converterchoice['prottree']['ete3_f1'] = converterchoice['prottree']['ete3']
 converterchoice['ete3_f1'] = converterchoice['ete3']
 

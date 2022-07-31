@@ -32,6 +32,27 @@ logger = logging.getLogger(__name__)
 ENSEMBL_VERSION = 85
 
 
+def make_ancgene2sp(ancestor, phyltree):
+    return re.compile(r'('
+                      + r'|'.join(re.escape(s) for s in
+                                  list(phyltree.species[ancestor]) +
+                                  sorted(phyltree.getTargetsAnc(ancestor),
+                                         key=lambda a:len(a),
+                                         reverse=True)).replace(' ', '.')
+                      + r')([^a-z].*|)$')
+
+
+def split_species_gene(nodename, ancgene2sp):
+    match = ancgene2sp.match(nodename)
+    try:
+        taxon, genename = match.groups()
+        taxon = taxon.replace('.', ' ')
+    except AttributeError:
+        taxon = None
+        genename = nodename
+    return taxon, genename
+
+
 #def get_taxon(node: ete3.TreeNode, ancgene2sp : re._pattern_type,
 #              ensembl_version : int = ENSEMBL_VERSION):
 def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION, skip_seq_error=False):
