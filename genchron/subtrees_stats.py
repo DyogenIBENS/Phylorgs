@@ -70,6 +70,14 @@ def iter_glob_subtree_files(genetreelistfile, ancestor, filesuffix, rootdir='.',
                             glob_template=GLOB_TEMPLATE,
                             wildcard_pattern=SUFFIX_PATTERN,
                             exclude=None):
+    """
+    For each genetree, glob files matching 'glob_template' formatted with:
+        ancestor, filesuffix, rootdir, subtreesdir and genetree;
+
+    then yield all (subtree file, subtree id, genetree).
+
+    The glob_template requires a '*', which is restricted by 'wildcard_pattern'
+    """
     #TODO: remove arguments filesuffix, rootdir, subtreesdir in favor of using
     # only glob_template.
     glob_template = glob_template.format(genetree='{0}',
@@ -972,6 +980,36 @@ def read_beastsummary(filename, convert=None):
     return summary
 
 
+def match_var_names(select_vars, varset):
+    for item in select_vars:
+        if len(item) == 1:
+            if item[0] in varset:
+                yield item[0], item[0]
+            else:
+                yield item[0], None
+        else:
+            key, regex = item
+            for var in varset:
+                if re.match(regex, var):
+                    yield key, var
+                    break
+            else:
+                yield key, None
+
+
+def select_var_names(select_vars, varset):
+    """Return the list of the first exact or regex match.
+    select_vars is a list of items (key, regex), the regex being optional."""
+    selected = []
+    missing = []
+    for key, match in match_var_names(select_vars, varset):
+        if match is not None:
+            selected.append(match)
+        else:
+            missing.append(key)
+    return selected, missing
+
+
 def get_beast_stats(genetreelistfile, ancestor, 
                     rootdir='.', subtreesdir='subtreesCleanO2',
                     glob_template=GLOB_TEMPLATE,
@@ -980,36 +1018,62 @@ def get_beast_stats(genetreelistfile, ancestor,
     """Data removed from alignment with Gblocks/Hmmcleaner"""
     if kwargs:
         logger.warning('Ignored kwargs: %s', kwargs)
-    var_shortnames = ('posterior', 'likelihood', 'treeL_12', 'treeL_3',
-                      'TreeHeight', 'gammaShape', 'rateAG',
-                      'ucldMean_12', 'ucldMean_3', 'ucldStdev_12', 'ucldStdev_3',
-                      'rate_12_mean', 'rate_12_var', 'rate_3_mean', 'rate_3_var',
-                      'birthRateY') # 'mrca_age_primates', 'mrca_age_simii'
-    select_vars = ('posterior', 'likelihood', 'treeLikelihood.myalignment_1,2',
-                   'treeLikelihood.myalignment_3',
-                   'TreeHeight', 'gammaShape', 'rateAG',
-                   'ucldMean.1,2', 'ucldMean.3', 'ucldStdev.1,2', 'ucldStdev.3',
-                   'rate.1,2.mean', 'rate.1,2.variance', 'rate.3.mean',
-                   'rate.3.variance', 'birthRateY')
 
-    stats_header = ['%s_%s' % (stat, stype)
-                    for stat in var_shortnames
+    # shortname -> regex
+    select_vars = [('posterior',),
+                   ('likelihood',),
+                   ('treeL_12', r'treeLikelihood\.([a-zA-Z0-9._-]+)(12|\.1,2)$'),
+                   ('treeL_3',  r'treeLikelihood\.([a-zA-Z0-9._-]+)\.?3$'),
+                   ('TreeHeight',),
+                   ('gammaShape',),
+                   ('gammaShape_12', r'gammaShape\.?1,?2$'),
+                   ('gammaShape_3',  r'gammaShape\.?3$'),
+                   ('rateAG',),
+                   ('kappa_12', r'kappa\.12$'),
+                   ('kappa_3',  r'kappa\.3$'),
+                   ('ucldMean_12',  r'ucldMean\.1,?2$'),
+                   ('ucldMean_3',   r'ucldMean\.3$'),
+                   ('ucldStdev_12', r'ucldStdev\.1,?2$'),
+                   ('ucldStdev_3',  r'ucldStdev\.3$'),
+                   ('rate_12_mean', r'rate\.1,?2\.mean$'),
+                   ('rate_12_var',  r'rate\.1,?2\.variance$'),
+                   ('rate_3_mean',  r'rate\.3\.mean$'),
+                   ('rate_3_var',   r'rate\.3\.variance$'),
+                   ('rate_12_coefvar', r'rate\.1,?2\.coefficientOfVariation$'),
+                   ('rate_3_coefvar',  r'rate\.3\.coefficientOfVariation$'),
+                   ('birthRateY',)]
+                    # 'mrca_age_primates', 'mrca_age_simii'
+
+    iterated = iter_glob_subtree_files(genetreelistfile,
+                                       ancestor,
+                                       filesuffix,
+                                       rootdir,
+                                       subtreesdir,
+                                       glob_template,
+                                       wildcard_pattern)
+    # Get the first file to obtain the header variables.
+    beastsummary, subtree, genetree = next(iterated)
+    summary = read_beastsummary(beastsummary)
+    selected, missing = select_var_names(select_vars, summary.keys())
+
+    if missing:
+        # It is expected that some beast runs will lack specific variables,
+        # but it is cautious to verify.
+        logger.warning('Variables not found (%d/%d), please check: %s', len(missing),
+                       len(select_vars), '; '.join(missing))
+
+    stats_header = ['%s_%s' % (names[0], stype)
+                    for names in select_vars if names[0] not in missing
                     for stype in ('mean', 'stdev', 'med')]  # Mean,std over the iterations.
-
     print('\t'.join(['subtree', 'genetree'] + stats_header))
-    for beastsummary, subtree, genetree in iter_glob_subtree_files(genetreelistfile,
-                                                             ancestor,
-                                                             filesuffix,
-                                                             rootdir,
-                                                             subtreesdir,
-                                                             glob_template,
-                                                             wildcard_pattern):
+
+    output = [summary[var][stype] for var in selected for stype in ('mean', 'stddev', 'median')]
+    print('\t'.join([subtree, genetree] + output))
+
+    for beastsummary, subtree, genetree in iterated:
         try:
-            #if not op.exists(beastsummary):
-            #    output = [None]*len(stats_header)
-            #else:
             summary = read_beastsummary(beastsummary)
-            output = [summary[var][stype] for var in select_vars
+            output = [summary[var][stype] for var in selected
                       for stype in ('mean', 'stddev', 'median')]
 
             print('\t'.join([subtree, genetree] + output))
@@ -1037,7 +1101,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-d', '--debug', action='store_true',
                         help='Set logging to DEBUG level.')
-    
+
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument('genetreelistfile', nargs='?',
                                type=argparse.FileType('r'), default=stdin)

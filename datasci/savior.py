@@ -61,7 +61,7 @@ def format_fig_embed(fig, format='png', bare=False, **kwargs):
         #          We should use an XML parser for that, but we will assume
         #          That the 3 first lines are to be removed.
         imglines = imgdata.split('\n', 10)  # Should be within the 10 first lines?
-        for i, line in imglines:
+        for i, line in enumerate(imglines):
             if line.startswith('<!-- ') or line.startswith('<svg '):
                 break
             assert line.startswith('<?xml ') or line.startswith('<!DOCTYPE ') or line.startswith(' ')
