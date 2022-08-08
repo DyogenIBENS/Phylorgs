@@ -11,16 +11,38 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+CONTROL = re.compile(r'[;"\']')
+
 def read_multinewick(lines, stripchars='\r\n'):
     """lines must be a file type or an iterable of lines"""
     newick = ''
-    for line in lines:
-        parts = line.strip(stripchars).split(';')
-        newick += parts.pop(0)
-        while parts:
-            yield newick + ';'
-            newick = parts.pop(0)
-    if newick.strip(stripchars):
+    i = 0
+    for ln, line in enumerate(lines):
+        line = line.strip(stripchars)
+        logger.debug('stripped line: %r/%r/%r' % (line, line.strip(stripchars), line.strip('\r\n')))
+        while line:
+            match = CONTROL.search(line)
+            if not match:
+                logger.debug('full line %d: %r' % (ln, line))
+                newick += line
+                line = ''
+            elif match.group() in ('"', "'"):
+                try:
+                    closing_pos = line[match.end():].index(match.group())
+                    quoted_end = match.end() + closing_pos + 1
+                except ValueError:
+                    quoted_end = len(line)
+                newick += line[:quoted_end]
+                line = line[quoted_end:]
+            else:
+                logger.debug('break line %d: %r' % (ln,line))
+                newick += line[:match.end()-1]
+                yield newick + ';'
+                i += 1
+                newick = ''
+                line = line[match.end():]
+    if newick.strip('\r\n;'):
+        logger.debug('Remainder of line %d: %r' % (ln, newick))
         yield newick + ';'
 
 

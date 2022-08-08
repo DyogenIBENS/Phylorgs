@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#
+
 """
 Append the species name to a gene name in a sequence alignment.
 Can convert ensembl gene names to species, as well as assembly names
@@ -142,7 +142,7 @@ def makelabel(elements, get_label, input_fmt=DEFAULT_IN_FMT, label_fmt=DEFAULT_O
 
         if label in seen_labels:
             seen_labels[label] += 1
-            label += '.%d' % seen_labels[label] - 1
+            label += '.%d' % (seen_labels[label] - 1)
         else:
             seen_labels[label] = 1
         yield elem, label, infos
@@ -221,7 +221,8 @@ def specify(inputfile, outfile, input_fmt=DEFAULT_IN_FMT,
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__, epilog=EXAMPLES)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=EXAMPLES,
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('inputfile', help='"-" for stdin (requires -f).')
     parser.add_argument('outfile', nargs='?', default=stdout)
     parser.add_argument('-i', '--input-fmt', default=DEFAULT_IN_FMT,
@@ -231,7 +232,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--label-fmt', default=DEFAULT_OUT_FMT,
             help='Valid extra keys: %s [%%(default)r]' % ' '.join(identifiers.keys()))
     parser.add_argument('-t', '--transform', action='append',
-                        help='[%(default)s]')
+                        help='substitution commands applied to input variables [%(default)s]')
     parser.add_argument('-f', '--file-fmt',
                         help='[automatic detection of nwk/fasta/phylip unless using stdin]')
     parser.add_argument('-e', '--ensembl-version', type=int,
