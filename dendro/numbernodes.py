@@ -7,7 +7,7 @@ import argparse
 from dendro.parsers import read_multinewick
 
 
-def main(inputfile, order='preorder', start=None, attr='name'):
+def main(inputfile, order='preorder', start=None, attr='name', count_leaves=False):
     #exclude_leaves=True
     if inputfile == '-':
         inputlines = sys.stdin.readlines()
@@ -22,6 +22,8 @@ def main(inputfile, order='preorder', start=None, attr='name'):
             if not node.is_leaf():
                 node.add_feature(attr, i)
                 i += 1
+            elif count_leaves:
+                i += 1
         out_features = None if attr=='name' else [attr]
         print(tree.write(features=out_features, format=1, format_root_node=True))
 
@@ -35,6 +37,8 @@ if __name__ == '__main__':
                         help='Tree traversal order [%(default)s]')
     parser.add_argument('-s', '--start', metavar='N', type=int,
                         help='First node number, or the number of leaves if None.')
+    parser.add_argument('-L', '--count-leaves', action='store_true',
+                        help='Also increment the index for leaves')
     parser.add_argument('-a', '--attr', default='name',
                         help='attribute name of the number [%(default)s]')
     

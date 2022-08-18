@@ -253,11 +253,8 @@ def main(treefile1, treefile2, exact=False, sort=False, parser='PhylTree',
     except KeyError:
         raise ValueError('Bad parser value', parser)
 
-    parser_kwargs = {'format': 1} if parser.lower() == 'ete3' else {}
-
     print(treefile1 + '\t' + treefile2)
-    for tree1, tree2 in zip_longest(iter_trees(treefile1, **parser_kwargs),
-                                    iter_trees(treefile2, **parser_kwargs)):
+    for tree1, tree2 in zip_longest(iter_trees(treefile1), iter_trees(treefile2)):
         if tree1 is None and tree2 is not None:
             logger.error("More trees2 than trees1. Ignoring.")
             break
@@ -293,7 +290,8 @@ if __name__ == '__main__':
                               'insensitive) [%(default)s]'))
     parser.add_argument('-n', '--node-order', default='levelorder',
                         choices=['levelorder', 'preorder', 'postorder'],
-                        help='Tree traversal order for numbering duplicate node names')
+                        help=('Tree traversal order for numbering duplicate node names'
+                            ' [%(default)s]'))
     parser.add_argument('-o', '--output', default='<=>!',  # '~' for fuzzy
                         help=('Matches to output:\n'
                               '`=` identical,\n'

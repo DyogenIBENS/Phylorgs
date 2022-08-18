@@ -10,6 +10,7 @@ from sys import version_info, exit, stderr, stdin
 python3 = version_info[0] >= 3
 
 import re
+from functools import wraps
 import logging
 logger = logging.getLogger(__name__)
 #logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s')
@@ -22,6 +23,7 @@ float_regex = re.compile(r'^-?[0-9](\.[0-9])?([eE]-?[0-9]+)')
 
 def make_subparser_func(func, commanddest='commands'):
     """Transform a normal function so that it takes arguments from the Argparse args."""
+    @wraps(func)
     def subp_func(args):
         dictargs = vars(args)
         dictargs.pop(commanddest)

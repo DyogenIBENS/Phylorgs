@@ -757,11 +757,13 @@ def bound_average(fulltree, calibration, todate=isdup,
     return ages, subtrees
 
 
+#FIXME: should just be called tabulate_node_features_from_tree
 def tabulate_ages_from_tree(fulltree, todate=true,
                             measures=['height'],
                             keeproot=True,
                             node_info=None,
                             node_feature_setter=None, dataset_fmt='{basename}'):
+    """Output a table in the same format as bound_average, without computing MPL."""
 
     node_info = [] if node_info is None \
                 else [(getinfo[0], lambda node: getattr(node, attr, None))

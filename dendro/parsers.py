@@ -134,6 +134,13 @@ def read_newick2nexus(handle):
     return nx
 
 
+def read_nexus_trees(handle):
+    """Return the tree strings"""
+    for line in handle:
+        if line.lstrip()[:4].lower() == 'tree':
+            yield line.split(maxsplit=1)[1].rstrip()
+
+
 def iter_as_phyltree(treefile, *args, **kwargs):
     from LibsDyogen import myPhylTree
     yield myPhylTree.PhylogeneticTree(treefile, *args, **kwargs)

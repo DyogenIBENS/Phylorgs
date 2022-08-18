@@ -30,12 +30,13 @@ np.set_printoptions(formatter={"float_kind": lambda x: "%g" %x})
 
 PHYLTREEFILE = "~/GENOMICUS{0:d}/PhylTree.Ensembl.{0:d}.conf"
 
+BEAST_TYPES   = {'%s%s' % (v,s): float for v in ('height', 'length', 'rate', 'posterior')
+                 for s in ('', '_median')}
 BEAST_MEASURES = set('%s%s' % (v,s) for v in ('height', 'length', 'rate')
                      for s in ('', '_median', '_95%_HPD', '_range')).union(('posterior',))
 BEAST_DEFAULTS = {'%s%s' % (v,s): np.NaN for v in ('height', 'length', 'rate')
                   for s in ('', '_median')}
 BEAST_DEFAULTS.update(posterior=np.NaN, dist=np.NaN)
-#TODO? convert string "{0.0..42.42}" into low and up floats.
 CODEML_MEASURES = set(('dN', 'dS', 't', 'N*dN', 'S*dS'))
 
 
@@ -50,6 +51,20 @@ def reassign_beast_range(r, name):
 BEAST_REASSIGNS = {'%s_%s' % (v,s): reassign_beast_range
                    for v in ('height', 'length', 'rate')
                    for s in ('95%_HPD', 'range')}
+
+def extender(func):
+    def extend_func(old, new_values):
+        return func([old] + new_values)
+    return extend_func
+
+# In case a beast output node is merged into a polytomy in the reference tree,
+# we must update the reference branch with the corresponding beast branches
+# example: add distance, average rates, skip height
+BEAST_EXTEND_BRANCH = {v: extender(sum)
+                       for v in ['dist'] + ['length'+s
+                            for s in ('', '_median', '_range_low', '_range_up', '_95%_HPD_low', '_95%_HPD_up')]}
+BEAST_EXTEND_BRANCH.update({'rate'+s: extender(np.average)
+                            for s in ('', '_median', '_range_low', '_range_up', '_95%_HPD_low', '_95%_HPD_up')})
 
 
 def ls(array):
@@ -192,21 +207,114 @@ def yield_lines_whilematch(file_obj, regex, line=None, jump=0):
         line = file_obj.readline()
         match = regex.match(line.rstrip())
 
+def make_new_features(srcnode, update_features, defaults, reassigns, types=None):
+    if not types:
+        types = {}
+    newfeatures = {}
+    for ft in update_features:
+        if isinstance(ft, tuple):
+            newfeatures[ft[0]] = getattr(srcnode, ft[1], defaults.get(ft[0]))
+            ft = ft[0]
+        else:
+            newfeatures[ft] = getattr(srcnode, ft, defaults.get(ft))
+        if ft in types:
+            newfeatures[ft] = types[ft](newfeatures[ft])
+    for rawfeature, convert in reassigns.items():
+        try:
+            newfeatures.update(
+                    **convert(newfeatures.pop(rawfeature,
+                                              getattr(srcnode, rawfeature)),
+                              rawfeature)
+                    )
+        except AttributeError as err:
+            err.args = ('reassigned ' + err.args[0],) + err.args[1:]
+            raise
+    return newfeatures
+
+
+def partialmatch(word, choices):
+    choicecuts = [(choice, [choice.split(sep)[0] for sep in '._-|/@']) for choice in choices]
+    wordcuts = [word.split(sep)[0] for sep in '._-|/@']
+    return [choice for choice, cuts in choicecuts
+            if any((w in c or c in w) for w in wordcuts for c in cuts)]
+
+
+def first_larger_clade(clade, nodecladedict, previousmatches):
+    """Iterate from the smallest clades to the largest. Do a `searchsorted`"""
+    nested_unmatched = []
+    for post_id, (node, searchclade) in enumerate(nodecladedict.items()):
+        if searchclade < clade and node not in previousmatches:
+            # IMPORTANT: don't skip these nodes resolved in src, polytomy in target:
+            # we MUST add their features (such as dist) to the corresponding target children
+            nested_unmatched.append(node)
+        elif searchclade >= clade:
+            # The first source clade containing or equal to the target clade is the good match
+            if searchclade > clade:
+                logger.error('Non exact clade match: #%s %r',
+                               post_id, node.name)
+                return
+            if node in previousmatches:
+                logger.warning('Source #%s %r already used for: %s (polytomy?)',
+                               post_id, node.name, [n.name for n in previousmatches[node]])
+            yield post_id, node, nested_unmatched
+            return
+
+
+# Spaghetti code award:
+def add_src_features(src_node_id, srcnode, nested_unmatched, node,
+                     update_features, defaults, reassigns, extends, types,
+                     leaf_sets, srcleaf_sets):
+    logger.info('Add features from #%2d %-21r dist=%5.2f -> %r', src_node_id, srcnode.name, srcnode.dist, node.name)
+    logger.debug('srcnode features: %s; update features: %s; target node features: %s', srcnode.features, update_features, node.features)
+    try:
+        node.add_features(**make_new_features(srcnode, update_features, defaults, reassigns, types))
+    except AttributeError as err:
+        if not err.args[0].startswith('reassigned'):
+            raise
+        elif not srcnode.is_root():
+            msg = err.args[0] + ' at #%s %r' % (src_node_id, srcnode.name)
+            if srcnode.is_leaf():
+                logger.warning('AttributeError:'+msg)
+            else:
+                err.args = (msg,) + err.args[1:]
+                raise
+    if nested_unmatched:
+        nested_features = [make_new_features(n, update_features, defaults, reassigns, types)
+                           for n in nested_unmatched]
+        # Find the children to update:
+        for child in node.children:
+            extfeatures = [nft for n, nft in zip(nested_unmatched, nested_features)
+                           if leaf_sets[child] <= srcleaf_sets[n]]
+            for ft, extend in extends.items():
+                try:
+                    setattr(child, ft, extend(getattr(child, ft), [eft[ft] for eft in extfeatures]))
+                except AttributeError as err:
+                    msg = err.args[0] + ' at target %r child of %r' % (child.name,node.name)
+                    # Not raising, because might be OK, we will just obtain NaN in the table,
+                    # and if it's due to incorrect clade match, it's likely only in the
+                    # outgroup, because I am usually running this on the 'robust' trees
+                    logger.error(msg)
+                    
+
+
 
 def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'],
-                      defaults=None, reassigns=None):
-    """Appropriate for matching nodes only when the differences are polytomies
-    or extra single-child nodes."""
-    srcleaf_sets = OrderedDict()  # Conserve the tree post-ordering
-    #clade2node = OrderedDict()
-    if defaults is None:
-        defaults = {}
-    if reassigns is None:
-        reassigns = {}
+                      defaults=None, reassigns=None, extends=None, types=None):
+    """Match nodes when the differences are only polytomies
+    or extra single-child nodes. Then update the target tree features."""
+    if defaults  is None: defaults  = {}
+    if reassigns is None: reassigns = {}
+    if extends   is None: extends   = {}
+    if types     is None: types     = {}
 
+    # Cache the set of leaves descending from each node, in post-order
+    #clade2node = OrderedDict()
+    srcleaf_sets = OrderedDict()
+    srcleaves = set()
     for srcnode in srctree.traverse('postorder'):
         if srcnode.is_leaf():
             srcleaf_sets[srcnode] = set((srcnode.name,))
+            srcleaves.add(srcnode.name)
             #clade2node[(node.name,)] = node
         else:
             clade = set.union(*(srcleaf_sets[ch] for ch in srcnode.children))
@@ -217,65 +325,144 @@ def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'
             #    clade2node[cladekey] = node
             srcleaf_sets[srcnode] = clade
 
-    leaf_sets = {}
-    src_match = defaultdict(set)
+    # Check that the leaf names match.
+    leaves = set(targettree.iter_leaf_names())
+    if leaves == srcleaves:
+        srcleaf_match = {leaf: leaf for leaf in leaves}
+    else:
+        if len(leaves) != len(srcleaves):
+            logger.warning('Source tree has %d leaves VS %d in target tree' % (len(srcleaves), len(leaves)))
+        if leaves & srcleaves:
+            logger.warning('Some source leaves are found in target, but not all!')
+        # Try to match the names, when one name is a substring of the other
+        srcleaves_list = sorted(srcleaves)
+        srcleaf_match = {}  # leaf.name: srcleaf.name
+        match_counts = {srcleaf: 0 for srcleaf in srcleaves_list}
+        unmatched = 0
+        for leaf in leaves:
+            srcleaf_match[leaf] = [srcleaf for srcleaf in srcleaves_list if (srcleaf in leaf or leaf in srcleaf)]
+            if not srcleaf_match[leaf]:
+                shortermatch = partialmatch(leaf, srcleaves_list)
+                if shortermatch:
+                    logger.info('Partial match: %s -> %s', leaf, '/'.join(shortermatch))
+                    srcleaf_match[leaf] = shortermatch
+                else:
+                    unmatched += 1
+            for match in srcleaf_match[leaf]:
+                match_counts[match] += 1
+        if unmatched:
+            raise RuntimeError('%d target leaves cannot be matched!' % unmatched)
+        src_unmatched = [srcleaf for srcleaf,count in match_counts.items() if count==0]
+        if src_unmatched:
+            partial_matches = [partialmatch(srcleaf, leaves) for srcleaf in src_unmatched]
+            src_unmatched_at_all = []
+            for srcleaf, pm in zip(src_unmatched, partial_matches):
+                if not pm:
+                    src_unmatched_at_all.append(srcleaf)
+                else:
+                    for leaf in pm:
+                        srcleaf_match[leaf].append(srcleaf)
+                        match_counts[srcleaf] += 1
+            if src_unmatched_at_all:
+                logger.error('%d src leaves are unmatched! %s', len(src_unmatched), ','.join(src_unmatched))
+            src_unmatched = src_unmatched_at_all
+        # Ensure one-to-one correspondence
+        # Only fix the least ambiguous situation:
+        # One target matches several src, but only one is matched exclusively.
+        unlinked = set()
+        new_match_counts = {srcleaf: 0 for srcleaf in srcleaves_list}
+        ambiguous = {}
+        for leaf, matches in srcleaf_match.items():
+            unlinked.update([match for match in matches if match_counts[match]>1])
+            newmatches = [match for match in matches if match_counts[match]==1]
+            if newmatches:
+                for match in newmatches:
+                    new_match_counts[match] += 1
+                srcleaf_match[leaf] = newmatches[0]
+                if len(newmatches)>1:
+                    ambiguous[newmatches[0]] = newmatches[1:]
+            else:
+                # Otherwise, all of the matches were non exclusive
+                srcleaf_match[leaf] = matches[0]
 
+        if unlinked:
+            logger.info('%d ambiguous src matches were discarded: %s', len(unlinked), ','.join(unlinked))
+        if ambiguous:
+            logger.error('%d target leaves match several src! src: %s', len(ambiguous), ','.join(ambiguous))
+        src_ambiguous = sum(count>1 for count in new_match_counts.values())
+        if src_ambiguous:
+            logger.error('%d src leaves are matched multiple times!', src_ambiguous)
+        
+        if src_unmatched:
+            raise RuntimeError('Failed to match all src leaves')
+
+    leaf_sets = {}
+    src_match = defaultdict(set)  #FIXME Matches should be unique here
+
+    #FIXME: could write a better algo
     for node in targettree.traverse('postorder'):
         if node.is_leaf():
-            clade = leaf_sets[node] = set((node.name,))
+            clade = leaf_sets[node] = set((srcleaf_match[node.name],))
         else:
             clade = leaf_sets[node] = set.union(*(leaf_sets[ch]
                                                     for ch in node.children))
         
-        # Iterate from the smallest clades to the largest. Do a `searchsorted`
         # Find a corresponding source node.
-        for srcnode, srcclade in srcleaf_sets.items():
-            # Find the first source clade containing or equal to the target clade.
-            if srcclade >= clade:
-                logger.info('Adding features from %r dist=%.2f -> %r', srcnode.name, srcnode.dist, node.name)
-                newfeatures = dict((ft[0], getattr(srcnode, ft[1], defaults.get(ft[0])))
-                                     if isinstance(ft, tuple)
-                                     else (ft, getattr(srcnode, ft, defaults.get(ft)))
-                                     for ft in update_features)
-                logger.debug('srcnode features = %s; updated features = %s; target node features = %s', srcnode.features, update_features, node.features)
-                for rawfeature, convert in reassigns.items():
-                    try:
-                        newfeatures.update(
-                                **convert(newfeatures.pop(rawfeature,
-                                                          getattr(srcnode, rawfeature)),
-                                          rawfeature)
-                                )
-                    except AttributeError as err:
-                        if not srcnode.is_root():
-                            msg = err.args[0] + ' at %r' % srcnode.name
-                            if srcnode.is_leaf():
-                                logger.warning('AttributeError:'+msg)
-                            else:
-                                err.args = (msg,) + err.args[1:]
-                                raise
-
-                node.add_features(**newfeatures)
-                if srcclade > clade:
-                    logger.warning('Non exact clade match: %r != %r',
-                                   srcnode.name, node.name)
-                if srcnode in src_match:
-                    logger.warning('Source %r already used for: %s (polytomy?)',
-                                   srcnode.name, [n.name for n in src_match[srcnode]])
-                src_match[srcnode].add(node)
-                break
+        for src_post_id, srcnode, nested_unmatched in first_larger_clade(clade, srcleaf_sets, src_match):
+            add_src_features(src_post_id, srcnode, nested_unmatched, node, update_features, defaults, reassigns, extends, types, leaf_sets, srcleaf_sets)
+            src_match[srcnode].add(node)
+            break
         else:
-            # there is no match.
-            logger.warning('Unmatched target node: %r', node.name)
+            # No match yet. Attempt to change the search using ambiguous leaves
+            for srcleaf in clade.intersection(ambiguous):
+                logger.debug('Trying to disambiguate with srcleaf %r', srcleaf)
+                # Iterate, but hoping there is zero or just one (should be, because we fix previous ones in postorder)
+                for altsrcleaf in ambiguous[srcleaf]:
+                    altclade = clade.difference((srcleaf,)).union((altsrcleaf,))
+                    altmatches = list(first_larger_clade(clade, srcleaf_sets, src_match))
+                    if altmatches:
+                        break
+                else:
+                    continue
+                # Finish updating the match, then break
+                add_src_features(*altmatch, node, update_features, defaults, reassigns, extends, types, leaf_sets, srcleaf_sets)
+                src_match[altmatch[1]].add(node)
+                # Also fix the ambiguity in all descending clades
+                leaf_sets[node] = altclade
+                for descendant in node.iter_descendants():  # Probably .children would suffice
+                    try:
+                        leaf_sets[descendant].remove(srcleaf)
+                        leaf_sets[descendant].add(altsrcleaf)
+                    except KeyError:
+                        continue
+                    # Check if descendant is not in another value of src_match, and delete it.
+                    for old_set in src_match.values():
+                        if descendant in old_set:
+                            old_set.remove(descendant)
+                            logger.warning('Old src match of %r discarded', descendant.name)
+                            break
+                    # rematch
+                    try:
+                        rematch, = list(first_larger_clades(leaf_sets[descendant], srcleaf_sets, src_match))
+                    except IndexError:
+                        continue
+                    add_src_features(*rematch, descendant, update_features, defaults, reassigns, extendds, types, leaf_sets, srcleaf_sets)
+                    src_match[rematch[1]] = descendant
+                break
+            else:
+                # there is no match, even considering alternative clade content (using ambiguities).
+                logger.warning('Unmatched target node: %r', node.name)
 
     unmatched_leaves = leaf_sets[targettree] ^ srcleaf_sets[srctree]
     if unmatched_leaves:
         logger.warning('Unmatched leaves: %s', '; '.join(unmatched_leaves))
 
-    unmatched_srcnodes = set(srcleaf_sets).difference(src_match)
-    if unmatched_srcnodes:
-        logger.warning('%d unmatched source nodes: %s', len(unmatched_srcnodes),
-                        '; '.join('%r(%s)' % (n.name, id(n)) for n in unmatched_srcnodes))
-                        #'; '.join(n.name for n in unmatched_srcnodes))
+    if set(srcleaf_sets).difference(src_match):
+        unmatched_srcnode_ids = [(post_id, srcnode.name, ','.join(srcleaf_sets[srcnode]))
+                                 for post_id, srcnode in enumerate(srctree.traverse('postorder'))
+                                 if srcnode not in src_match]
+        logger.warning('%d unmatched source nodes: %s', len(unmatched_srcnode_ids),
+                        '; '.join('#%s %r (%s)' % elem for elem in unmatched_srcnode_ids))
 
 
 
@@ -819,6 +1006,7 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                 except LookupError:
                     logger.debug('Parsed %d results from %s', ndataset, resultfile)
                     break
+    #FIXME: the BEAST_MEASURE check is also done in the calling function (process())
     elif BEAST_MEASURES.union(('beast:dist',)).intersection(measures):
         try:
             tree = ete3.Tree(resultfile, format=1)  # consensus tree from Beast + TreeAnnotator.
@@ -834,7 +1022,9 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                           update_features=['dist' if m=='beast:dist' else m
                                            for m in measures],
                           defaults=BEAST_DEFAULTS,
-                          reassigns=BEAST_REASSIGNS)
+                          reassigns=BEAST_REASSIGNS,
+                          extends=BEAST_EXTEND_BRANCH,
+                          types=BEAST_TYPES)
         yield fulltree
 
 
@@ -1013,7 +1203,7 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
         measures.extend(sorted(CODEML_MEASURES))
     elif 'beast' in measures:
         measures.remove('beast')
-        measures.extend(sorted(BEAST_MEASURES))
+        measures.extend(sorted(BEAST_MEASURES.union(('beast:dist',))))
 
     ## Globbing suggestion
     #for m in measures:
@@ -1039,6 +1229,7 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
                 measure_outputs = ['%s_%s' % (s,m)
                                     for s in stats for m in measures]
             elif set(measures) & BEAST_MEASURES.union(('beast:dist',)):
+                # FIXME: also checked in 'process()' (assigned_measures)
                 measure_outputs = []
                 for m in measures:
                     if m in BEAST_REASSIGNS:
