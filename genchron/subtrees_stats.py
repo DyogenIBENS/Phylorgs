@@ -965,7 +965,6 @@ def get_cleaning_stats(genetreelistfile, ancestor,
 
 
 def read_beastsummary(filename, convert=None):
-    # TODO: convert the infinity symbol to 'Inf'
     summary = {}
     with open(filename) as f:
         colnames = next(f).split()[1:]
@@ -1053,7 +1052,7 @@ def get_beast_stats(genetreelistfile, ancestor,
                                        wildcard_pattern)
     # Get the first file to obtain the header variables.
     beastsummary, subtree, genetree = next(iterated)
-    summary = read_beastsummary(beastsummary)
+    summary = read_beastsummary(beastsummary, lambda s: s.translate({8734: 'Inf'}))
     selected, missing = select_var_names(select_vars, summary.keys())
 
     if missing:
@@ -1064,17 +1063,17 @@ def get_beast_stats(genetreelistfile, ancestor,
 
     stats_header = ['%s_%s' % (names[0], stype)
                     for names in select_vars if names[0] not in missing
-                    for stype in ('mean', 'stdev', 'med')]  # Mean,std over the iterations.
+                    for stype in ('mean', 'stdev', 'med', 'ESS')]  # Mean,std over the iterations.
     print('\t'.join(['subtree', 'genetree'] + stats_header))
 
-    output = [summary[var][stype] for var in selected for stype in ('mean', 'stddev', 'median')]
+    output = [summary[var][stype] for var in selected for stype in ('mean', 'stddev', 'median', 'ESS')]
     print('\t'.join([subtree, genetree] + output))
 
     for beastsummary, subtree, genetree in iterated:
         try:
             summary = read_beastsummary(beastsummary)
             output = [summary[var][stype] for var in selected
-                      for stype in ('mean', 'stddev', 'median')]
+                      for stype in ('mean', 'stddev', 'median', 'ESS')]
 
             print('\t'.join([subtree, genetree] + output))
 

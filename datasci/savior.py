@@ -171,29 +171,19 @@ class HtmlReport(Report):
     @classmethod
     def get_default_styles(cls):
         default_styles = ['''
-            .column{0} {{
-              float: left;
-              width: {0}%;
-            }}'''.format(p) for p in range(10,100,10)]
-        default_styles.append('''
-            /* Clear floats after the columns */
-            .columns:after {
-              content: "";
-              display: table;
-              clear: both;
+            body {
+              max-width: 940px;
+              margin-right: auto;
+              margin-left: auto;
             }
             pre {
+              display: inline-block; /* ensures that nested pre lines do not have to much vertical spacing */
               white-space: pre-wrap;
+              width: calc(49vw - 470px);
             }
             pre.log {
-              margin: 0;
-              padding: 0;
-              line-height: 1;
-            }
-            body > * {
-              max-width:940px;
-              margin-right:auto;
-              margin-left:auto;
+              margin-bottom: 0;
+              margin-top: 0;
             }
             table.dataframe {
               margin: 0 auto;
@@ -230,7 +220,21 @@ class HtmlReport(Report):
               font-size: small;
               text-align: center;
             }
-''')
+''']
+        default_styles += ['''
+            .column{0} {{
+              float: left;
+              width: {0}%;
+            }}'''.format(p) for p in range(10,100,10)]
+        default_styles += ['''
+            /* Clear floats after the columns */
+            .columns:after {
+              content: "";
+              display: table;
+              clear: both;
+            }
+            ''']
+
         return default_styles
 
     def __init__(self, filename=None, mode='w', figformat='png', title=None,
@@ -297,12 +301,16 @@ class HtmlReport(Report):
                                '</body>', '</html>\n'])
         self.closed = True
         self.begun = []  # opened html tags inside body.
-    
+
+    def setlogfmt(self, fmt=None, datefmt=None, style='%'):
+        self.loghandler.setFormatter(
+                HtmlColoredFormatter(r'\<pre class="log"\>' + fmt + r'\</pre\>',
+                                     datefmt, style))
 
     def open(self, mode):
         self.handle = StringIO() if self.filename is None else open(self.filename, mode)
         self.loghandler = logging.StreamHandler(self.handle)
-        self.loghandler.setFormatter(HtmlColoredFormatter(fmt=r'\<pre class="log"\>'+BASIC_FORMAT+r'\</pre\>'))
+        self.setlogfmt(BASIC_FORMAT)
         self.closed = False
         if self.external_content:
             # Filename should not be None
@@ -385,7 +393,10 @@ class HtmlReport(Report):
         if self.printing:
             self.handle.write('</pre>\n')
             self.printing = False
-        if fig is None: fig = plt.gcf()
+        if fig is None:
+            if not plt.get_fignums():
+                raise RuntimeError('No current figure!')
+            fig = plt.gcf()
         self.handle.write(self.format_fig(fig, self.figformat, **kwargs))
     
     def html(self, obj):
@@ -595,8 +606,12 @@ def slideshow_generator(hr: HtmlReport, **gkwargs):
     return slideshow_iter
 
 
+_LOGGING_STYLECLASS_CODE = {constructor[0]: codestring for codestring, constructor in logging._STYLES.items()}
+
+
 @contextmanager
-def reroute_loggers(hr, *loggers):
+def reroute_loggers(hr: HtmlReport, *loggers):
+    """Update the handlers of loggers to write into the HtmlReport"""
     if len(loggers)==1 and isinstance(loggers[0], (tuple, list)):
         loggers, = loggers  # Unpack.
     logger_states = {}
@@ -605,6 +620,15 @@ def reroute_loggers(hr, *loggers):
             #if logger.hasHandlers():
             logger_states[logr.name] = logr.handlers
             logr.handlers = [hr_entered.loghandler]
+            # Preserve the log format:
+            if logger_states[logr.name]:
+                orig_formatter = logger_states[logr.name][0].formatter
+                try:
+                    orig_fmt = orig_formatter.fmt_color_template  # class UItools.colorlog.ColoredFormatter
+                except AttributeError:
+                    orig_fmt = orig_formatter._fmt
+                orig_style = _LOGGING_STYLECLASS_CODE[orig_formatter._style.__class__]
+                hr_entered.setlogfmt(orig_fmt, orig_formatter.datefmt, orig_style)
         yield hr_entered
         for logr in loggers:
             logr.handlers = logger_states.pop(logr.name)

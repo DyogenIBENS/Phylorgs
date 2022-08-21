@@ -76,9 +76,9 @@ logf = logging.Formatter(logfmt)
 try:
     from UItools import colorlog
     #clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)3s:%(funcName)-20s:$RESET%(message)s"
-    clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)2s:$RESET%(message)s"
+    clogfmt = "$LVL%(levelname)-7s:${RESET}l.%(lineno)2s:$RESET%(message)s"
     colorlogf = colorlog.ColoredFormatter(clogfmt)
-    clogfmt2 = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)2s:$BOLD%(funcName)-20s$RESET:%(message)s"
+    clogfmt2 = "$LVL%(levelname)-7s:${RESET}%(module)s:$BLACK%(funcName)-20s$RESET:%(message)s"
     colorlogf2 = colorlog.ColoredFormatter(clogfmt2)
 except ImportError:
     colorlogf = colorlogf2 = logf
@@ -1199,6 +1199,12 @@ def compute_branchrate_std(ages_controled, dist_measures,
     """
     Example filter_condition for approximated dS (nonlocal):
     '(calibrated==1) & (calibrated_parent==1)'
+
+    Summary:
+    - create cs_rates, containing mean_rate for each subgenetree
+    - repeat the tree mean for each branch (construct aligned_csrates: not saved)
+    - this allows computing the rate deviation, for each branch,
+      then the std dev for each subgenetree
     """
 
     groupby_cols = ["subgenetree", "taxon_parent", "taxon",
@@ -1223,11 +1229,11 @@ def compute_branchrate_std(ages_controled, dist_measures,
         print('%d rows queried for mean (ages_controled)' % ages_controled.shape[0])
         check_nan(sgg[branchtime].sum(), 'sgg[branchtime].sum()')
     
-    # Sum aggregation + division broadcasted on columns
-    # This is the maximum likelihood estimate for a constant Poisson rate.
     if poisson:
+        # Sum aggregation + division broadcasted on columns
+        # This is the maximum likelihood estimate for a constant Poisson rate.
         cs_rates = sgg[dist_measures].sum().div(sgg[branchtime].sum(), axis=0)
-    #    Problem: directly proportional to the tree length. Because branch times same across genes
+        # Problem: directly proportional to the tree length. Because branch times same across genes
     elif not weighted:
         cs_rates = ages_controled[dist_measures]\
                     .div(ages_controled[branchtime], axis=0)\
@@ -2127,14 +2133,17 @@ class fullRegression(object):
         try:
             self.show = self.out.show
         except AttributeError:
+            logger.debug("Output %s does not have a .show method", self.out)
             self.show = plt.show
         try:
             self.display = self.out.display
         except AttributeError:
+            logger.debug("Output %s does not have a .display method", self.out)
             self.display = display
         try:
             self.display_html = self.out.html
         except AttributeError:
+            logger.debug("Output %s does not have a .html method", self.out)
             self.display_html = display_html
         #print('Setting logger: current __name__ = %r; ' % __name__,
         #      'current self.__module__ = %r' % self.__module__)
@@ -2292,7 +2301,8 @@ class fullRegression(object):
         
         # All binary variables should **NOT** be z-scored!
         self.bin_features = bin_features = [ft for ft in features
-                            if suggested_transform[ft].__name__ == 'binarize']
+                            if (suggested_transform[ft].__name__ == 'binarize' or
+                                np.issubdtype(alls[ft].dtype, bool))]
         zscored_features = [ft for ft in responses+features if ft not in bin_features]
 
         if alls.isin((-np.Inf, np.Inf)).any(axis=None):
@@ -2814,9 +2824,9 @@ class fullRegression(object):
                 logger.error('Pcorr are all NaNs. There were %d input NaN pvalues (%s)',
                              na_ttests.sum(), bad_props_ttests.index[na_ttests])
             # Add last row being the pooled features T-test.
-            self.bad_props_ttests = bad_props_ttests.append(
-                                        pd.Series(tt_bad, index=['T', 'P'],
-                                                  name='ANY'))
+            self.bad_props_ttests = pd.concat((bad_props_ttests,
+                                        pd.DataFrame([tt_bad], columns=['T', 'P'], index=['ANY']))
+                                        )
             self.bad_props_ttests['removed'] = pd.Series(self.bad_props_counts)
             self.display_html(self.bad_props_ttests.style.applymap(
                              lambda v: ('background: khaki' if v<0.01 else
@@ -2920,11 +2930,11 @@ class fullRegression(object):
 
         # Plot Y~X with each coef (the 15 largest).
         fit_figs = []
-        iter_coeffs = range(1, min(16, len(self.slopes2.index)))
+        iter_coeffs = range(1, min(16, len(self.reslopes2.index)))
         if self.widget is not None:
             iter_coeffs = self.widget(iter_coeffs)
         for coef_i in iter_coeffs:
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(num=777, clear=True) # If plt.show go crazy, this reuses the previous fig
             scatter_density(a_n_inde2[self.slopes2.index[coef_i]], a_n_inde2[y], alpha=0.4, ax=ax)
             x = np.array(ax.get_xlim())
             a, b = reslopes2.loc[['const', self.slopes2.index[coef_i]], 'Simple regression coef']
@@ -2940,7 +2950,7 @@ class fullRegression(object):
             ax.set_ylabel(y)
             ax.set_xlabel(self.slopes2.index[coef_i])
             fit_figs.append(fig)
-            self.show(); plt.close()
+            self.show(fig); plt.close()
             #ax = sb.regplot(a_n_inde2[self.slopes2.index[coef_i]], a_n_inde2[y])
             #self.show(); plt.close()
         self.displayed.append(fit_figs)
@@ -2957,7 +2967,7 @@ class fullRegression(object):
 
         smg.gofplots.qqplot(refitlasso2.resid, line='r', ax=axes[1])
         self.displayed.append(fig)
-        self.show(); plt.close()
+        self.show(fig); plt.close()
 
         if hasattr(refitlasso2, 'cov_HC0'):
             fig = heatmap_cov(refitlasso2.cov_HC0, ['const']+self.selected_features2,
@@ -2967,7 +2977,7 @@ class fullRegression(object):
             w, h = fig.get_size_inches()
             fig.set_size_inches(min(w, w/20. * n), min(h, h/20 * n))
             self.displayed.append(fig)
-            self.show(); plt.close()
+            self.show(fig); plt.close()
         else:
             logger.warning("No attribute 'cov_HC0' in `refitlasso2`.")
         if hasattr(refitlasso2, 'cov_HC1'):
@@ -2978,7 +2988,7 @@ class fullRegression(object):
             fig.set_size_inches(min(w, w/20. * n), min(h, h/20. * n))
             fig.suptitle('cov_HC1')
             self.displayed.append(fig)
-            self.show(); plt.close()  # Not needed because this is the last figure before return.
+            self.show(fig); plt.close()  # Not needed because this is the last figure before return.
         else:
             logger.warning("No attribute 'cov_HC1' in `refitlasso2`.")
 
@@ -3318,15 +3328,34 @@ _must_drop_features = {"ls", "seconds",  # ~ ingroup_glob_len
                        # "ingroup_mean_CpG", "ingroup_std_N", "lnL",
                        # "dS_rate_std", "t_rate_std", "dN_rate_std", "dist_rate_std"
                        # BeastS
-                       "treeL_12_med", #~mean
-                       "birthRateY_med",
-                       "ucldMean_12_med",
+                       "treeL_12_mean", #~mean
+                       "birthRateY_mean",
+                       "ucldMean_12_mean",
+                       "ucldStdev_12_mean",
+                       "ucldMean_3_mean",
+                       "TreeHeight_mean",
+                       "rate_12_mean_mean",
+                       "gammaShape_mean",
+                       "gammaShape_12_mean",
+                       "gammaShape_3_mean",
+                       "rateAG_mean",
+                       "rate_mean",
+                       "kappa_12_mean",
+                       "kappa_3_mean",
+                       "beastclock_rate",  # Instead, use the 'median' estimates
+                       "beastclock_rate_std",
+                       "beast_rate",
+                       "beast_rate_std",
+                       "ucldMean_12_mean",
+                       "ucldStdev_12_mean",
+                       "ucldMean_3_mean",
+                       "ucldStdev_3_mean",
+                       "ucldMean_12_med", # Redundant with beastclock rate
                        "ucldStdev_12_med",
                        "ucldMean_3_med",
-                       "TreeHeight_med",
-                       "rate_12_mean_med",
-                       "gammaShape_med",
-                       "rateAG_med"}
+                       "ucldStdev_3_med",
+                     }
+
 
 def renorm_logsqdecorr(y, x):
     return zscore(y - 2*x)
@@ -3371,7 +3400,7 @@ _must_decorr = {
             '%s_rate%s' %(m, ('_'+setting if setting else '')))
           for setting in ('', 'global', 'local', 'nonlocal', 'global_approx',
                            'local_approx', 'global_beastS')#self.rate_settings
-          for m in MEASURES),
+          for m in MEASURES+['beastS', 'beast', 'beastmedian', 'beastclock', 'beastclockmedian']),
         sitelnL=('lnL', 'ingroup_glob_len')
         )#,
     #renorm_logsqdecorr = Args(
@@ -3398,6 +3427,7 @@ _protected_features = {'RdS_rate_std', 'dS_rate_std',
                        'RdS_rate_std_local', 'dS_rate_std_local',
                        'RdS_rate_std_nonlocal', 'dS_rate_std_nonlocal',
                        'RbeastS_rate_std', 'beastS_rate_std',
+                       'Rbeastmedian_rate_std', 'beastmedian_rate_std',
                        'ingroup_glob_len'}
 
 

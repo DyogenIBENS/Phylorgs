@@ -33,7 +33,6 @@ LVL_COLNAME = {  # For Html.
 BASIC_FORMAT = '$LVL%(levelname)s$RESET:$BOLD%(name)s$RESET:%(message)s'
 #BASIC_HTML_FORMAT = '<span style="$LVL">%(levelname)s</span>'
 
-
 class ColoredFormatter(logging.Formatter):
     """Colorize logs using terminal color codes.
     Works in terminal and Jupyter notebook.
@@ -48,6 +47,7 @@ class ColoredFormatter(logging.Formatter):
     BG_COLOR = BG_COLOR
 
     def __init__(self, fmt=None, datefmt=None, style='%'):
+        self.fmt_color_template = fmt
         if fmt is not None:
             colored_template = string.Template(fmt)
             fmt = colored_template.substitute(
@@ -77,6 +77,49 @@ class ColoredFormatter(logging.Formatter):
             for logger in loggers:
                 logger.addHandler(sh)
 
+RESET_REGEX = re.compile(r'\$RESET(?![A-Za-z0-9])|\$\{RESET\}')
+
+
+def template_resetall(fmt, opencodes):
+    """Update RESET codes so that they close *all* the opened environments.
+    For example, if RED and then BOLD were opened, the next RESET is supposed
+    to close both: so it is replaced two RESETs.
+    In html, this ensures that the right number of closing </span> are written.
+    """
+    opening = re.compile(r'|'.join(r'\$'+code+r'(?![A-Za-z0-9_])|\$\{'+code+r'\}' for code in opencodes))
+    start = 0
+    closed = 0
+    it = 0
+    while start < len(fmt):
+        if it>1000:
+            raise RuntimeError('While loop limit exceeded')
+        it += 1
+        match = RESET_REGEX.search(fmt[start:])
+        if match:
+            pos = start + match.end()
+            matchstart = start + match.start()
+            closed += 1
+        else:
+            pos = matchstart = len(fmt)
+        opened = len(opening.findall(fmt, start, pos))
+        #logger.debug('$RESET at index=%d, after %d openings', pos, opened)
+        if matchstart>0 and fmt[matchstart-1] == '$':
+            # the reset is escaped. Do not close now, but memorize the openings
+            closed -= (opened + 1)
+            start = pos
+            #logger.debug('Escaped. opened=%d -> closed=%d; next start=%d', opened, closed, start)
+            continue
+        while RESET_REGEX.match(fmt[pos:]):
+            if closed < opened:
+                closed += 1
+            pos += RESET_REGEX.match(fmt[pos:]).end()
+        #TODO: ignore if already the right number of resets
+        fmt = fmt[:pos] + '${RESET}'*(opened-closed) + fmt[pos:]
+        start = pos + 8 * max(0, opened-closed)
+        #logger.debug('New: "%s" len=%d next start: %d closed: %d', fmt, len(fmt), start, closed)
+        closed = 0
+    return fmt
+
 
 convert_html_char = {'<': '&lt;', '>': '&gt;', '&': '&amp;'}
 escape_html_char = {'<': r'\<', '>': r'\>', '&': r'\&'}
@@ -95,6 +138,8 @@ def to_html(txt):
 
 def instyle(style: str):
     return ('<span style="%s">' % style).translate(escape_html_trans)
+
+
 class HtmlColoredFormatter(ColoredFormatter):
     RESET_SEQ = '</span>'.translate(escape_html_trans)
     BOLD_SEQ = instyle("font-weight:bold")
@@ -107,6 +152,12 @@ class HtmlColoredFormatter(ColoredFormatter):
                   for col in COLOR})
     BG_COLOR = {('BG' if col.isupper() else 'bg')+col: tag.replace('color:', 'background:')
                 for col, tag in COLOR.items()}
+    
+    def __init__(self, fmt=None, datefmt=None, style='%'):
+        if fmt is not None:
+            fmt = template_resetall(fmt, ['LVL', 'BGLVL', 'BOLD'] + list(COLOR) + list(BG_COLOR))
+        super(HtmlColoredFormatter, self).__init__(fmt, datefmt, style)
+            
     
     def format(self, record):
         return to_html(super(HtmlColoredFormatter, self).format(record))

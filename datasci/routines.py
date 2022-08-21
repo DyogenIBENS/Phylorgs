@@ -318,10 +318,13 @@ def test_transforms(alls, variables, figsize=(14, 5), out=None, widget=None):
         # Plot original variable distribution 
         if var.dtype != float:
             print("Variable %r not continuous: %s" % (ft, var.dtype), file=out)
-            if var.dtype != int:
-                if var.dtype == bool:
-                    print("Boolean variable %r interpreted as numeric" % ft, file=out)
-                    suggested_transform[ft] = binarize
+            if not np.issubdtype(var.dtype, np.integer):
+                if np.issubdtype(var.dtype,  bool):
+                    if var.min() == var.max():
+                        print("Boolean variable %r is constant. Skipping." % ft, file=out)
+                    else:
+                        print("Boolean variable %r interpreted as numeric" % ft, file=out)
+                        suggested_transform[ft] = binarize
                 else:
                     print("Variable %r does not seem to be numeric/bool. Skipping" % ft, file=out)
                 continue
@@ -858,8 +861,8 @@ def loop_leave1out(features, func, criterion='min', nloops=None, stop_criterion=
     disp_html = getattr(out, 'html', display_html)
     show = getattr(out, 'show', plt.show)  # Bad things may happen with unexpected classes.
 
-    if protected is None:
-        protected = []
+    protected = [] if protected is None else list(protected)
+
     if nloops is None:
         nloops = len(set(features).difference(protected))
 
