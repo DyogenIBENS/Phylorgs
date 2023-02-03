@@ -3017,14 +3017,14 @@ class fullRegression(object):
         self.display_html(self.alls.sort_values(self.responses[0], ascending=True).head(50))
 
 
-    def plot_coefs(self, fig_columns=['coef'], renames=None):
+    def plot_coefs(self, fig_columns=['coef'], renames=None, signif_levels=[0.05, 0.01]):
         # fig_columns could also include: ['Lasso coef', 'Simple regression coef']
         if renames is None: renames = {}
         ax_titles = {'coef': 'Multiple regression coefficient',
                      'Lasso coef': 'Lasso regression',
                      'Simple regression coef': 'Simple regression'}
         ncols = len(fig_columns)
-        coefs = self.reslopes2  # Should run .do() or .do_bestfit() first.
+        coefs = self.reslopes2  # Should run .do() or .do_bestfit() first. DataFrame expected.
 
         coef_err = coefs[['[0.025', '0.975]']].subtract(coefs.coef, axis=0).abs().values.T
         nan_err = np.full(coef_err.shape, np.NaN)
@@ -3032,9 +3032,19 @@ class fullRegression(object):
         axes = matplotlib_stylebar(coefs.rename(renames), fig_columns,
                                    err=np.array([coef_err]+[nan_err]*(ncols-1)))
         ax0_xmax = axes[0].get_xlim()[1]
+        # Adjust significance levels if not given
+        if signif_levels is None:
+            raise NotImplementedError('Automatic choice of significance levels')
+            pvalues = coefs['P>|z|'].values
+            signif_levels = [0.05]
+            signif_pvals = pvalues[pvalues>0.05]
+            signif_levels.append(10**round(np.log10(median(signif_pvals))))
+        signif_levels = - np.asarray(signif_levels)  # negate pvalue cutoffs to sort by increasing significance
+        signif_levels.sort()
+
         for j, (ft, pval) in enumerate(coefs['P>|z|'].items()):
-            txt = axes[0].text(ax0_xmax, j, ('**' if pval<0.01 else '*' if pval<=0.05 else ''),
-                               va='center', ha='left') #ha='right')
+            starring = '*' * np.searchsorted(signif_levels, - pval, side='right')
+            txt = axes[0].text(ax0_xmax, j, starring, va='center', ha='left')
         #txt_box = txt.get_window_extent()#.get_positions()
         #print(txt_box.x0, txt_box.x1)
         #axes[0].set_xlim(axes[0].get_xlim()[0], )
@@ -3046,6 +3056,12 @@ class fullRegression(object):
         axes[0].tick_params(bottom=True, labelbottom=True)
         axes[0].grid(axis='x', color='.2', alpha=0.5)
         axes[0].set_xticklabels(['-0.5', '0', '0.5'])
+        axes[0].annotate('\n'.join('%s: p-value ≤ %g' % ('*' * i, -lvl)
+                                   for i,lvl in enumerate(signif_levels, start=1)),
+                        xy=(0.98,0), xycoords='figure fraction',
+                        xytext=(-1,1), textcoords='offset points',
+                        va='bottom', ha='right', fontsize='xx-small')
+
 
         if len(axes)>1:
             axes[1].set_xlabel(None)
