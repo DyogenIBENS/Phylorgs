@@ -276,3 +276,18 @@ def make_all_lines(genome, gene_categories, gene_trees, modgene, gene_info):
                                        gene_trees, chrom, pos)
             yield cat, lines
 
+
+def main():
+    import argparse as ap
+    from sys import stdin
+    from ete3 import Tree
+    parser = ap.ArgumentParser()
+    parser.add_argument('treefile', nargs='?', default='-')
+    args = parser.parse_args()
+    newick = stdin.read() if args.treefile == '-' else args.treefile
+    tree = Tree(newick, format=1)
+    print(draw_ete3_tree(tree))
+
+
+if __name__ == '__main__':
+    main()
