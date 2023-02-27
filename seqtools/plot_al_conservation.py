@@ -74,6 +74,101 @@ def parse_slice(text, end=None):
         raise ValueError('Invalid slice expression %r' % text)
     return tuple(default if arg is None else int(arg) for arg,default in zip(m.groups(), (0, end, 1)))
 
+
+RESIDUE_CMAPS = {
+    'aa': {
+        'clustal': {
+            **{aa: '#f09500' for aa in 'GPST'}, # Orange
+            **{aa: '#d33333' for aa in 'HKR'},  # Red
+            **{aa: '#3991f1' for aa in 'FWY'},  # Blue
+            **{aa: '#22cf11' for aa in 'ILMV'}},# Green
+        'clustalx': {
+            'C': '#ffa7b6', # Pink
+            'G': '#e96610', # Orange
+            'P': '#c0c000', # Yellow
+             **{aa: '#1051b1' for aa in 'AILMFWV'},# Blue
+             **{aa: '#932000' for aa in 'KR'},     # Red
+             **{aa: '#ee00cc' for aa in 'ED'},     # Magenta
+             **{aa: '#22aa00' for aa in 'NQST'},   # Green
+             **{aa: '#00ffdd' for aa in 'HY'}},    # Cyan
+        'clustalxtab20': {
+            'C': '#f7b6b2',  # Pink
+            'G': '#fd8d3c',  # Orange
+            'P': '#e7ba52',  # Yellow
+            'A': '#3182bd', 'V': '#6baed6', 'I': '#9ecae1', 'L': '#c6dbef', # Blue from tab20c
+            'F': '#393b79', 'M': '#5254a3', 'W': '#6b6ecf',  # Blue from tab20b
+            'K': '#843c39', 'R': '#d6616b',  # Red
+            'E': '#a55194', 'D': '#ce6dbd',  # Magenta
+            'N': '#637939', 'Q': '#b5cf6b', 'S': '#31a354', 'T': '#a1d99b', # Green
+            'H': '#17becf', 'Y': '#9edae5'},   # Cyan
+        'dayhoff6': { # Based on Dark2
+            'C': '#d95f02',
+            **{aa: '#2230d3' for aa in 'FYW'},
+            **{aa: '#66a610' for aa in 'HKR'},
+            **{aa: '#e6ab02' for aa in 'ILMV'},
+            **{aa: '#642515' for aa in 'EDNQ'},
+            **{aa: '#d739aa' for aa in 'AGPST'}},
+        'phylorgs': { # default
+            'C': '#e6550d',
+            'F': '#3192bd', 'Y': '#6baed6', 'W': '#c6dbef',  # Blue
+            'H': '#31a354', 'K': '#74c476', 'R': '#a1d99b',  # Green
+            'I': '#8c6d31', 'L': '#bd9e39', 'M': '#e7ba52', 'V': '#e7cb94',  # Yellow
+            'E': '#843c39', 'D': '#ad494a', 'N': '#8c564b', 'Q': '#c49c94',  # Red/Brown
+            'A': '#7b4173', 'G': '#a55194', 'P': '#9467db', 'S': '#ce6dbd', 'T': '#de9ed6'} # Magenta
+        },
+    'nucl': {
+        'clustalx': {'A': '#b32200', 'C': '#3991f1', 'G': '#e6c200', 'T': '#44bb11'}, # This should be forbidden
+        'clustalxtab20': {'A': '#843c39', 'C': '#3182bd', 'G': '#e7ba52', 'T': '#74c476'}, #'#31a354'}
+        #'default': {'A': '#de9ed6',  'C': '#7570b3', 'G': '#e7ba52', 'T': '#66a61e'}
+        'phylorgs': {'A': '#b14918',  'C': '#6baed6', 'G': '#6a3d9a', 'T': '#e6ab02'}
+        },
+    'codon': {}
+    }
+RESIDUE_CMAPS['aa']['default'] = RESIDUE_CMAPS['aa']['phylorgs']
+RESIDUE_CMAPS['nucl']['default'] = RESIDUE_CMAPS['nucl']['phylorgs']
+
+RECODINGS = {'clustalx': ('C', 'G', 'P', 'AILMFWV', 'KR', 'ED', 'NQST', 'HY'),
+             'dayhoff6': ('C', 'FYW', 'HKR', 'ILMV', 'EDNQ', 'AGPST')}
+
+DEFAULT_CMAP = 'default'  #'dayhoff6tab20'
+
+
+def get_residue_cmap(cmapname=DEFAULT_CMAP, altype='nucl', N=None, recoding=None):
+    if cmapname in RESIDUE_CMAPS[altype]:
+        resid_colors = RESIDUE_CMAPS[altype][cmapname]
+        colorlist = []
+        resid2int = NUCL2INT if altype=='nucl' else CODON2INT if altype=='codon' else AA2INT
+        for r, i in sorted(resid2int.items(), key=lambda item: item[1]):
+            if i and r.isupper():
+                colorlist.append(resid_colors[r])
+                logger.debug('residue %r color %s', r, resid_colors[r])
+        cmap = mpl.colors.ListedColormap(colorlist, name=cmapname)
+    else:
+        try:
+            cmap = plt.get_cmap(cmapname, N)
+        except ValueError:
+            logger.warning('No cmap %r for altype=%s', cmapname, altype)
+            cmap = plt.get_cmap('tab20b', N)
+        try:
+            cmap = cmap.copy()
+        except AttributeError:
+            pass  # Older matplotlib version
+        if recoding and altype=='aa':
+            cmap = plt.get_cmap(cmapname, len(RECODINGS[recoding]))  # tab20b works well
+            recoder = dict((resid, i) for i, recoded in enumerate(RECODINGS[recoding]) for resid in recoded)
+            logger.debug('Recoder: %s', recoder)
+            colorlist = []
+            resid2int = NUCL2INT if altype=='nucl' else CODON2INT if altype=='codon' else AA2INT
+            for r, i in sorted(resid2int.items(), key=lambda item: item[1]):
+                if i and r.isupper():
+                    colorlist.append(cmap(recoder[r]))
+            cmap = mpl.colors.ListedColormap(colorlist, name=cmapname+'_'+recoding)
+
+    cmap.set_over((0.2, 0.2, 0.2))
+    cmap.set_under('w')
+    return cmap
+
+
 def filename2format(filename):
     _, ext = os.path.splitext(filename)
     return EXT2FMT[ext]
@@ -149,8 +244,8 @@ def al_colorbar(ax, cax=None, altype='nucl', orientation='vertical', **kwargs):
     #nticks = len(ticks)
     logger.debug('cbar lim= %s; ylim= %s; xlim= %s', im.get_clim(),
                  cbar.ax.get_ylim(), cbar.ax.get_xlim())
-    logger.debug('norm.vmax = %g; norm.N = %g; cmap.N = %g',
-                 im.norm.vmax, im.norm.N, im.cmap.N)
+    logger.debug('norm.vmin,vmax = %g,%g; norm.N = %g; cmap %s cmap.N = %g',
+                 im.norm.vmin, im.norm.vmax, im.norm.N, im.cmap.name, im.cmap.N)
     gap = GAPS[0]
     if altype=='nucl':
         residues = NUCLEOTIDES
@@ -162,6 +257,8 @@ def al_colorbar(ax, cax=None, altype='nucl', orientation='vertical', **kwargs):
         residues = CODONS + list(CODONS_STOP)
         rescode = CODON2INT
         gap *= 3
+    else:
+        raise ValueError('altype should be in aa/nucl/codon (%r)' % altype)
 
     ticks = np.arange(1, len(residues)+1)
     ticklabels = residues
@@ -171,7 +268,7 @@ def al_colorbar(ax, cax=None, altype='nucl', orientation='vertical', **kwargs):
         ticklabels = [[]]
         prev_resid_col = tuple(im.cmap(im.norm(1)))
         ticks = [1]
-        logger.debug('residue color 0: %s', prev_resid_col)
+        logger.info('norm(1): %s; residue color 1: %s ; cmap(1): %s', im.norm(1), prev_resid_col, im.cmap(1))
         for i, resid in enumerate(residues, start=1):
             if rescode[resid] != i:
                 raise RuntimeError('Residue integer code is mismatched! Wrong color legend.')
@@ -257,7 +354,7 @@ class AlignPlotter(object):
 
 
     def __init__(self, alint, seqlabels=None, valid_range=(1,64), tree=None,
-                 topology_only=False):
+                 topology_only=False, colormap=DEFAULT_CMAP, recoding=None):
         """Initialize the Plotter instance from a matrix of integers.
         
         - alint: alignment provided as a numpy 2D array of integers.
@@ -267,7 +364,7 @@ class AlignPlotter(object):
         self.alint = alint
         self.x = np.arange(self.alint.shape[1]) # X values for plotting
         logger.debug('Alignment shape: %s', alint.shape)
-        
+
         self.malint = np.ma.array(alint, mask=(alint==0))
         self.seqlabels = seqlabels
         self.plotlist = ['al']
@@ -284,15 +381,15 @@ class AlignPlotter(object):
         #cmap_size = valid_range[1] - valid_range[0] # If len(valid_range) > 1
         # Dark2, tab20b, tab20, Set1
         #FIXME: valid_range for codons should exclude the stops: (1,61)
-        cmap = plt.get_cmap('tab20b', valid_range[1] - valid_range[0] + 1).copy() #, cmap_size)
-        cmap.set_over((0.2, 0.2, 0.2))
-        cmap.set_under('w')
-        # a norm is needed to set bounds!!!
-        
+        #FIXME: __init__ should require altype
+        altype = 'nucl' if valid_range[1]==4 else 'aa' if valid_range[1]==20 else 'codon'
+        cmap = get_residue_cmap(colormap, altype, valid_range[1] - valid_range[0] + 1, recoding=recoding)
+
         # Directly use integer values to get colors in cmap: Same speed but less clear.
         #self.plotdata = {'al': (self.malint - valid_range[0],)} # With NoNorm
         #norm = mpl.colors.NoNorm(0, valid_range[1] - valid_range[0])
 
+        # a norm is needed to set bounds!!!
         bounds = np.arange(valid_range[0]-0.5, valid_range[1] + 0.6)
         norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
         # Maybe a ListedColormap is better.
@@ -311,7 +408,8 @@ class AlignPlotter(object):
     @classmethod
     def fromfile(cls, infile, format=None, altype='nucl', allow_N=False,
                  ungap=True, slice=None, records=None, recordsfile=None,
-                 treefile=None, topology_only=False):
+                 treefile=None, topology_only=False, colormap=DEFAULT_CMAP,
+                 recoding=None):
         align = AlignIO.read(infile,
                              format=(format or
                                      filename2format(getattr(infile, 'name',
@@ -369,7 +467,7 @@ class AlignPlotter(object):
 
         # Init and setup the class instance
         valid_range = (1, len(NUCLEOTIDES)) if altype=='nucl' else (1, 64) if altype=='codon' else (1,len(AA))
-        instance = cls(alint, seqlabels, valid_range, tree, topology_only)
+        instance = cls(alint, seqlabels, valid_range, tree, topology_only, colormap, recoding)
         instance.fromfile_params = {'infile': infile, 'format': format,
                                     'slice': (slstart, slend),
                                     'records': records}
@@ -387,7 +485,7 @@ class AlignPlotter(object):
         gap proportion, entropy-gap score, SP-score"""
 
         max_valid = self.valid_range[1]
-        
+
         al_freqs = freq_matrix(self.alint, minlength=(max_valid+2))
         gap_prop = al_freqs[0,:]
         invalid_prop = al_freqs[(max_valid+1):, :].sum(axis=0)
@@ -557,7 +655,7 @@ class AlignPlotter(object):
         logger.debug('Nplots: %s, %s', nplots, plotlist)
         #fig, axes = plt.subplots(nplots, sharex=True,
         #                         figsize=(figwidth, 4*nplots), squeeze=False)
-        
+
         if 'tree' in plotlist:
             rows = nplots - 1
             cols = 5  # tree plot spans 1 col, alignment spans 4.
@@ -656,11 +754,17 @@ class AlignPlotter(object):
 def plot_al_conservation(infile, format=None, altype='nucl', allow_N=False,
          ungap=True, records=None, recordsfile=None, treefile=None, slice=None,
          topology_only=False, compare_parts=None,
-         compare_only=False, plotlist=None, figwidth=16, plotheight=4):
+         compare_only=False, plotlist=None, figwidth=16, plotheight=4,
+         colorscheme='Dark2/dayhoff6'):
+
+    try:
+        colorscheme, recoding = colorscheme.split('/', maxsplit=1)  #FIXME: not splitting
+    except ValueError:
+        recoding = None
 
     align_plot = AlignPlotter.fromfile(infile, format, altype, allow_N, ungap,
                                        slice, records, recordsfile, treefile,
-                                       topology_only)
+                                       topology_only, colorscheme, recoding)
     if logger.getEffectiveLevel() <= logging.DEBUG:
         del align_plot.plot_funcs['tree'][1]  # tickparams(labelright=False)
     if not compare_only:
@@ -686,7 +790,7 @@ def main():
     parser.add_argument('-o', '--outfile')
     parser.add_argument('-f', '--format', help='Force format usage.' \
                         ' Can be any format accepted by Bio.alignIO')
-    parser.add_argument('-a', '--altype', choices=['nucl', 'aa', 'codon'],
+    parser.add_argument('-a', '--altype', default='aa', choices=['nucl', 'aa', 'codon'],
                         help='Process per nucleotide position (instead of codon)')
     parser.add_argument('-N', '--allow-N', action='store_true',
                         help='Tolerate "N" nucleotides as NA value.')
@@ -720,6 +824,13 @@ def main():
                         help='comma-sep list of plots. Valid values are: '\
                              'al,gap,pars,entropy,gap_entropy,sp,manh,pearson'
                              'part_sp,part_pars. [%(default)s]')
+    parser.add_argument('-m', '--colorscheme', default=DEFAULT_CMAP,
+                        help=('color coding residues: names can be: clustal,'
+                              'clustalx,clustalxtab20,dayhoff6,dayhoff6tab20 or any '
+                              'matplotlib colormap. With matplotlib colormaps,'
+                              ' use the optional suffix "/recoding" to group '
+                              'amino-acid in categories ({}). '
+                              '[%(default)s]').format(','.join(RECODINGS)))
     parser.add_argument('-v', '--verbose', action='count', default=0)
     
     args = parser.parse_args()

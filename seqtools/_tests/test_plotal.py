@@ -101,8 +101,8 @@ FASTAS = {'nucl': FASTA, 'codon': FASTA, 'aa': FASTA_AA}
 
 
 def plotal_setopts(altype='nucl', allow_N=False, ungap=True, records=None, recordsfile=None, treefile=None, slice=None,
-         topology_only=False, compare_parts=None, compare_only=False, plotlist=None):
-    return (altype,allow_N,ungap,records,recordsfile,treefile,slice,topology_only,compare_parts,compare_only,plotlist)
+         topology_only=False, compare_parts=None, compare_only=False, plotlist=None, colorscheme='default'):
+    return (altype,allow_N,ungap,records,recordsfile,treefile,slice,topology_only,compare_parts,compare_only,plotlist,colorscheme)
 
 
 optnames = ','.join(plotal_setopts.__code__.co_varnames)
@@ -111,30 +111,36 @@ optnames = ','.join(plotal_setopts.__code__.co_varnames)
 OPTION_IDS, OPTIONS = tuple(zip(*[
     ('only_al_nucl',  plotal_setopts('nucl', plotlist='al')),
     ('only_al_nucl+allow_N',  plotal_setopts('nucl', plotlist='al', allow_N=True)),
-    ('only_al_aa',  plotal_setopts('aa', plotlist='al')),
+    ('only_al_aa',    plotal_setopts('aa', plotlist='al')),
     ('only_al_codon', plotal_setopts('codon', plotlist='al')),
-    ('al_aa,entropy', plotal_setopts('aa', plotlist='al,entropy')),
-    ('al_aa,entropy+allow_N', plotal_setopts('aa', plotlist='al,entropy', allow_N=True)),
+    ('al_aa,entropy',            plotal_setopts('aa', plotlist='al,entropy')),
+    ('al_aa,entropy+allow_N',    plotal_setopts('aa', plotlist='al,entropy', allow_N=True)),
     ('al_aa,entropy,sp+allow_N', plotal_setopts('aa', plotlist='al,entropy,sp', allow_N=True)),
     ('tree,al',  plotal_setopts(plotlist='tree,al', treefile=StringIO(NEWICK))),
     ('al,tree',  plotal_setopts(plotlist='al,tree', treefile=StringIO(NEWICK))),
-    ('al,gap,tree',  plotal_setopts(plotlist='al,gap,tree', treefile=StringIO(NEWICK))),
-    ('al_aa,gap,tree',  plotal_setopts('aa', plotlist='al,gap,tree', treefile=StringIO(NEWICK))),
+    ('al,gap,tree',        plotal_setopts(plotlist='al,gap,tree', treefile=StringIO(NEWICK))),
+    ('al_aa,gap,tree',     plotal_setopts('aa', plotlist='al,gap,tree', treefile=StringIO(NEWICK))),
     ('al_codon,gap,tree',  plotal_setopts('codon', plotlist='al,gap,tree', treefile=StringIO(NEWICK))),
-    ('al,gap,pars,tree',  plotal_setopts(plotlist='al,gap,pars,tree', treefile=StringIO(NEWICK))),
+    ('al,gap,tree+clustalx',            plotal_setopts(plotlist='al,gap,tree', treefile=StringIO(NEWICK), colorscheme='clustalx')),
+    ('al_aa,gap,tree+norecoding',       plotal_setopts('aa', plotlist='al,gap,tree', treefile=StringIO(NEWICK), colorscheme='Dark2')),
+    ('al_aa,gap,tree+recodingclustalx', plotal_setopts('aa', plotlist='al,gap,tree', treefile=StringIO(NEWICK), colorscheme='Dark2/clustalx')),
+    ('al_aa,gap,tree+clustalxtab10',    plotal_setopts('aa', plotlist='al,gap,tree', treefile=StringIO(NEWICK), colorscheme='clustalxtab20')),
+    ('al,gap,pars,tree',    plotal_setopts(plotlist='al,gap,pars,tree', treefile=StringIO(NEWICK))),
     ('al,gap,pars+records', plotal_setopts(plotlist='al,gap', records='19,0,1')),
     #('al,gap,pars+recordsfile', plotal_setopts('nucl', plotlist='al,gap,pars', recordsfile=StringIO('ENSGGOG\nENSPCOG\nENSMICG\n')),
     #('al,gap,pars,tree+records', plotal_setopts(plotlist='al,gap,pars,tree', treefile=StringIO(NEWICK), records='19,0,1')), # NotImplemented
     ('al,gap+records+slice', plotal_setopts(plotlist='al,gap', records='19,0,1', slice='5:100')),
-    ('only_al_compare_parts', plotal_setopts(plotlist='al', compare_parts='(0:14);(14:)')),
-    ('compare_parts', plotal_setopts(compare_parts='(0:14);(14:)')),
+    ('only_al_compare_parts',      plotal_setopts(plotlist='al', compare_parts='(0:14);(14:)')),
+    ('compare_parts',              plotal_setopts(compare_parts='(0:14);(14:)')),
     ('compare_parts+compare_only', plotal_setopts(compare_parts='(0:14);(14:)', compare_only=True)),
-    ('compare_parts_implicit', plotal_setopts(compare_parts='(14:)')),
-    ('compare_parts_regex', plotal_setopts(compare_parts='(NLE|PPY|G000|PTR|PPA|GGO)'))
+    ('compare_parts_implicit',     plotal_setopts(compare_parts='(14:)')),
+    ('compare_parts_regex',        plotal_setopts(compare_parts='(NLE|PPY|G000|PTR|PPA|GGO)'))
     ]))
 
 class Test_plot_al_conservation:
     @pytest.mark.parametrize(optnames, OPTIONS, ids=OPTION_IDS)
-    def test_run(self, altype, allow_N, ungap, records, recordsfile, treefile, slice, topology_only, compare_parts, compare_only, plotlist):
+    def test_run(self, altype, allow_N, ungap, records, recordsfile, treefile, slice, topology_only,
+                 compare_parts, compare_only, plotlist, colorscheme):
         plot_al_conservation(StringIO(FASTAS[altype]), 'fasta',
-                           altype, allow_N, ungap, records, recordsfile, treefile, slice, topology_only, compare_parts, compare_only, plotlist).display()
+                             altype, allow_N, ungap, records, recordsfile, treefile, slice, topology_only,
+                             compare_parts, compare_only, plotlist, colorscheme=colorscheme).display()
