@@ -86,6 +86,7 @@ setup(name='Organon',
             'treebest2genomicus=dendro.treebest2genomicus:main',
             'treed=dendro.treed:main',
             'unroot_binarise=dendro.unroot_binarise:main',
+            'basalize=dendro.basalize:main',
             'validate_monophylies=dendro.validate_monophylies:main'
             'prot2gene=ensembltools.prot2gene:main',
             'request_biomart=ensembltools.request_biomart:main',
