@@ -5,7 +5,7 @@ import pytest
 import tempfile
 from io import StringIO
 from collections import namedtuple
-from seqtools.plot_al_conservation import *
+from seqtools.plotal import *
 logger.setLevel(logging.DEBUG)
 
 plt.switch_backend('TkAgg')
