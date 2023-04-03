@@ -55,7 +55,7 @@ def split_species_gene(nodename, ancgene2sp):
 
 #def get_taxon(node: ete3.TreeNode, ancgene2sp : re._pattern_type,
 #              ensembl_version : int = ENSEMBL_VERSION):
-def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION, skip_seq_error=False):
+def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION, seq_error='raise'):
     """from a gene name in my newick gene trees, find the taxon:
         either:
             - node is a leaf (e.g ENSMUSG00...)
@@ -64,15 +64,20 @@ def get_taxon(node, ancgene2sp, ensembl_version=ENSEMBL_VERSION, skip_seq_error=
         try:
             taxon = ultimate_seq2sp(node.name, ensembl_version)
         except KeyError as err:
-            if skip_seq_error:
-                logger.warning(','.join(err.args))
-            else:
+            if seq_error == 'raise':
                 raise
+            if seq_error == 'warn':
+                logger.warning('ultimate_seq2sp: %s: %s', type(err).__name__, err)
+                taxon = node.name
+            elif seq_error == 'ignore':
+                taxon = node.name
+            else:
+                raise ValueError('seq_error value must be "raise"|"warn"|"ignore"')
     else:
         try:
             taxon = ancgene2sp.match(node.name).group(1).replace('.', ' ')
         except AttributeError:
-            raise ValueError("Can not match species name in %r" % node.name)
+            raise ValueError("Cannot match species name in %r" % node.name)
     return taxon
 
 

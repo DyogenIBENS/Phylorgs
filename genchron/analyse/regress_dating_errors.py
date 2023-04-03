@@ -3056,7 +3056,7 @@ class fullRegression(object):
         axes[0].tick_params(bottom=True, labelbottom=True)
         axes[0].grid(axis='x', color='.2', alpha=0.5)
         axes[0].set_xticklabels(['-0.5', '0', '0.5'])
-        axes[0].annotate('\n'.join('%s: p-value ≤ %g' % ('*' * i, -lvl)
+        axes[0].annotate('\n'.join('%s: p-value ≤ %g' % (('*' * i), -lvl)
                                    for i,lvl in enumerate(signif_levels, start=1)),
                         xy=(0.98,0), xycoords='figure fraction',
                         xytext=(-1,1), textcoords='offset points',
@@ -3548,6 +3548,7 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False, nfeatur
     reg_approx.logger = logger
     reg_approx.widget = slideshow_generator(hr)
     reg_approx.set_output()
+
     reg_approx.predict_extreme_values()
 
     hr.mkd('## Prediction on new data')

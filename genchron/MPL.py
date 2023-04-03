@@ -921,7 +921,7 @@ def main():
     logger.debug('todate function: %s', todate.__name__)
 
     def this_get_taxon(node):
-        return get_taxon(node, ancgene2sp, ensembl_version, skip_seq_error=True)
+        return get_taxon(node, ancgene2sp, ensembl_version, seq_error="ignore")
     
     def get_eventtype(node, subtree):
         if node.is_leaf():
@@ -972,7 +972,8 @@ def main():
 
         ambiguous = disambiguate_nodelabels(tree)
         if any(ambiguous.values()):
-            logger.warning('Node labels with identical names were disambiguated with a numerical suffix')
+            logger.warning('%d node labels with identical names were disambiguated with a numerical suffix',
+                           sum(v>0 for v in ambiguous.values()))
 
         node_info = [('taxon', this_get_taxon), ('is_outgroup', is_outgroup)]
         ages, subtrees = bound_average(tree, calib, todate,

@@ -41,7 +41,7 @@ def main(infile, subtreesfile=None, check_ultrametricity=-1,
             leaf_dists = [d for _,d in iter_distleaves(tree, get_data)]
             return max(leaf_dists) - min(leaf_dists) < thresh
 
-    tree = ete3.Tree(infile, format=format)
+    tree = ete3.Tree(stdin.read() if infile=='-' else infile, format=format)
     if not is_ultrametric(tree, check_ultrametricity):
         logger.warning("Requested ultrametricity check but the input tree is not ultrametric.")
 
@@ -78,15 +78,15 @@ def main(infile, subtreesfile=None, check_ultrametricity=-1,
                 + "%r(age = %g):dist=%g\n" % (anchor_node.name, age_anchor, anchor_node.dist) \
                 + "\n".join("%r(age = %g):dist=%g" % (ch.name, age_via_inserted - ch.dist, ch.dist)
                             for ch in newsubtree.children[1:])
-                        
+
         parent = orig_node.up
         orig_dist = orig_node.dist
         anchor_dist = anchor_node.dist
         inserted_dists_diffs = [nch.dist - anchor_dist for nch in newsubtree.children]
 
-        orig_node.detach()
         new_dist = orig_dist - anchor_dist
 
+        orig_node.detach()
         parent.add_child(child=newsubtree, dist=new_dist)
         parent.swap_children()
 
@@ -97,6 +97,12 @@ def main(infile, subtreesfile=None, check_ultrametricity=-1,
         anchor_node.detach()
         newsubtree.add_child(child=orig_node, dist=anchor_dist)
         newsubtree.swap_children()
+
+        if newsubtree.name == parent.name:
+            logger.info('Existing insertion node %r (create polytomy)', parent.name)
+            for child in newsubtree.children:
+                child.dist += newsubtree.dist
+            newsubtree.delete(preserve_branch_length=False, prevent_nondicotomic=False)
 
         if new_dist < 0:
             logger.warning("New branch to %r longer than the original (%g > %g), fixing.",
@@ -129,7 +135,7 @@ def main(infile, subtreesfile=None, check_ultrametricity=-1,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('infile')
+    parser.add_argument('infile', help="'-' to read from stdin")
     parser.add_argument('subtreesfile', nargs='?',
                         help='subtrees to insert. The root should be the new ' \
                              'branching node, and the top leaf should be an ' \
