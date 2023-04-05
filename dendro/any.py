@@ -192,9 +192,9 @@ class BioNexus(TreeMethod):
         return node.data.branchlength
 
 
-methodchoice = {'phyltree': myPhylTree,
-                'proteintree': myProteinTree,
-                'ete3': ete3,
-                'ete3_f1': ete3,
-                'biophylo': BioPhylo,
-                'bionexus': BioNexus}
+methodchoice = {'phyltree': myPhylTree,        'PhylTree': myPhylTree,
+                'proteintree': myProteinTree,  'prottree': myProteinTree, 'ProteinTree': myProteinTree,
+                'ete3': ete3,                  'Ete3': ete3,
+                'ete3_f1': ete3,               'Ete3_f1': ete3,
+                'biophylo': BioPhylo,          'BioPhylo': BioPhylo,
+                'bionexus': BioNexus,          'BioNexus': BioNexus}

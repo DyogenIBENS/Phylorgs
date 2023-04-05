@@ -3,7 +3,7 @@
 
 """"""
 
-from dendro.parsers import parserchoice
+from dendro.parsers import chooseparser, eval_optiontext, expand_short_options, LONG_KWARGS_ETE3, PARSERSPEC_HELP
 from dendro.any import methodchoice
 from dendro.bates import dfw_descendants_generalized
 import numpy as np
@@ -58,14 +58,11 @@ def multiply_branchlengths(tree_methods, tree, factor=1):
 
 
 def main():
-    parser = ap.ArgumentParser(description=__doc__)
+    parser = ap.ArgumentParser(description=__doc__, epilog=PARSERSPEC_HELP,
+                               formatter_class=ap.RawTextHelpFormatter)
     #common_parser = ap.ArgumentParser(add_help=False)
     parser.add_argument('treefile')
-    parser.add_argument('-p', '--parser', choices=list(set(k.lower() for k in parserchoice.keys())),
-                        default='ete3_f1',
-                        help='[%(default)s]')
-    parser.add_argument('-w', '--writer-args',
-                        help='Command separated list of key=value pairs. Ex for ete3: dist_formatter="%%f"')
+    parser.add_argument('-p', '--parser', default='ete3:1', help='[%(default)s]')
 
     subp = parser.add_subparsers(dest='transform')
 
@@ -88,24 +85,12 @@ def main():
     transform = args.transform
     delattr(args, 'transform')
 
-    parse_tree = parserchoice[args.parser]
-    #convert_tree = convertchoice[args.parser]['ete3']
-    tree_methods = methodchoice[args.parser]
+    parse_tree = chooseparser(args.parser, silent=True)
+    treetype, _, tree_optiontext = args.parser.partition(':')
+    tree_methods = methodchoice[treetype.strip().lower()]
 
-    writer_args = {}
-    if args.writer_args:
-        for item in args.writer_args.split(','):
-            key,value = item.split('=', 1)
-            if len(value)>1 and ((value[0] == "'" and value[-1] == "'") or (value[0] == '"' and value[-1] == '"')):
-                value = value[1:-1]
-            elif value in ('True', 'False'):
-                value = eval(value)
-            else:
-                try:
-                    value = int(value)
-                except ValueError:
-                    value = float(value)
-            writer_args[key] = value
+    write_kwargs = eval_optiontext(tree_optiontext)
+    expand_short_options(write_kwargs, LONG_KWARGS_ETE3)
 
     if transform in ('disc', 'discretize'):
         func = discretize_branchlengths
@@ -118,7 +103,7 @@ def main():
 
     for tree in parse_tree(args.treefile):
         func(tree_methods, tree, **kwargs)  # inplace
-        tree_methods.print_newick(tree, **writer_args)
+        tree_methods.print_newick(tree, **write_kwargs)
 
 
 if __name__=='__main__':

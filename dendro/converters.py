@@ -1,7 +1,10 @@
 
 """Module to convert Python tree objects between different classes.
 
-(ete3, LibsDyogen, scipy.hclust.linkage...)"""
+(Ete3, LibsDyogen, Bio.Phylo, Bio.Nexus, scipy.hclust.linkage...)
+
+Also see dendro.formats to switch between *file* formats.
+"""
 
 
 from dendro.bates import rev_dfw_descendants, dfw_descendants_generalized
@@ -164,6 +167,7 @@ def One_BioNexusTree_to_BioPhylo(ntree):
 
 converterchoice = {'PhylTree': {'Ete3': PhylTree_to_ete3},
                    'ProtTree': {'Ete3': ProtTree_to_ete3},
+                   'ProteinTree': {'Ete3': ProtTree_to_ete3},
                    'Ete3': {'Ete3': ete3_to_ete3},
                    'BioPhylo': {'BioNexus': BioPhylo_to_BioNexusTree},
                    'BioNexus': {'BioPhylo': One_BioNexusTree_to_BioPhylo}}
@@ -176,39 +180,50 @@ converterchoice['prottree']['ete3_f1'] = converterchoice['prottree']['ete3']
 converterchoice['ete3_f1'] = converterchoice['ete3']
 
 
-def main():
-    def eval_scalar(val):
-        if val in ('None', 'False', 'True'):
-            return eval(val)
-        else:
-            try:
-                return int(val)
-            except ValueError:
-                try:
-                    return float(val)
-                except ValueError:
-                    # val will remain a string.
-                    return val
+VALID_CONVERSIONS = """
+Valid conversions:
 
+ * PhylTree|ProtTree -> Ete3  (the reverse is not useful because PhylTree/ProtTree have newick parsers)
+ * BioPhylo <-> BioNexus      (although BioNexus cannot be used to output newick)
+"""
+
+
+def _eval_scalar(val):
+    if val.lower() in ('none', 'false', 'true'):
+        return eval(val.capitalize())
+    try:
+        return int(val)
+    except ValueError:
+        try:
+            return float(val)
+        except ValueError:
+            # val will remain a string.
+            return val
+
+
+def main():
     from sys import stdin
     import argparse as ap
-    from dendro.parsers import parserchoice
+    from dendro.parsers import chooseparser
     from dendro.any import methodchoice
 
-    parser = ap.ArgumentParser(description=__doc__)
+    parser = ap.ArgumentParser(description=__doc__, epilog=VALID_CONVERSIONS,
+                               formatter_class=ap.RawDescriptionHelpFormatter)
     parser.add_argument('inputtree', default=stdin)
     parser.add_argument('-p', '--parser', default='phyltree', help='[%(default)s]')
     parser.add_argument('-o', '--outformat', default='ete3', help='[%(default)s]')
-    parser.add_argument('-a', '--out-kwargs', nargs='+',
+    parser.add_argument('-w', '--out-kwargs', nargs='+', default=[],
                         help=('list of key=value arguments to give to '
                               '`print_newick`. Ex: "features=[]" for the ete3 '
                               'output format.'))
 
     args = parser.parse_args()
 
-    treeparser = parserchoice[args.parser]
-    convert = converterchoice[args.parser][args.outformat]
-    print_newick = methodchoice[args.outformat].print_newick
+    parse_tree = chooseparser(args.parser)
+    treetype = args.parser.split(':', 1)[0].strip().lower()
+    outformat = args.outformat.lower()
+    convert = converterchoice[treetype][outformat]
+    print_newick = methodchoice[outformat].print_newick
 
     kwargs = {}
     for keyval in args.out_kwargs:
@@ -216,13 +231,12 @@ def main():
         if val[0] == '[' and val[-1] == ']':
             newval = []
             for elem in val[1:-1].split(','):
-                newval.append(eval_scalar(elem.strip()))
+                newval.append(_eval_scalar(elem.strip()))
         else:
-            newval = eval_scalar(val)
+            newval = _eval_scalar(val)
         kwargs[key] = newval
 
-
-    for tree in treeparser(args.inputtree):
+    for tree in parse_tree(args.inputtree):
         print_newick(convert(tree), **kwargs)
 
 

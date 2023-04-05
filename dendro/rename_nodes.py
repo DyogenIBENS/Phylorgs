@@ -5,7 +5,7 @@
 from sys import stdin
 import argparse as ap
 import ete3
-from dendro.parsers import parserchoice
+from dendro.parsers import chooseparser, eval_optiontext, expand_short_options, LONG_KWARGS_ETE3
 from dendro.converters import converterchoice
 
 
@@ -28,27 +28,31 @@ def rename(tree, conversion):
             pass
 
 
-def main(conversionfile, treefile=stdin, parser='ete3_f1'):
+def main(conversionfile, treefile=stdin, parser='ete3:1'):
     conversion = load_conversion(conversionfile)
 
-    parse = parserchoice[parser]
-    convert = converterchoice[parser]['ete3']
+    parse = chooseparser(parser)
+    treetype, _, tree_optiontext = parser.partition(':')
+    write_kwargs = {'format': 1, 'format_root_node': True,
+                    **eval_optiontext(tree_optiontext)}
+    expand_short_options(write_kwargs, LONG_KWARGS_ETE3)
+    convert = converterchoice[treetype.strip().lower()]['ete3']
 
     for tree_object in parse(treefile):
         tree = convert(tree_object)
         rename(tree, conversion)
-        print(tree.write(format=1, format_root_node=True))
+        print(tree.write(**write_kwargs))
 
 
 if __name__ == '__main__':
     parser = ap.ArgumentParser(description=__doc__)
     parser.add_argument('conversionfile')
     parser.add_argument('treefile', nargs='?')
-    parser.add_argument('-p', '--parser', default='ete3_f1',
-                        choices=['ete3_f1', 'ete3', 'phyltree', 'proteintree'],
-                        help='How to load the tree. `myPhylTree` allows to ' \
-                             'automatically set unique node names [%(default)s].')
-    
+    parser.add_argument('-p', '--parser', default='ete3:1',
+                        help=('How to load the tree (ete3/phyltree/prottree '
+                              '+ options). `phyltree` allows to automatically '
+                              'set unique node names [%(default)s].'))
+
     args = parser.parse_args()
     main(**vars(args))
 

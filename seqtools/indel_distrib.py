@@ -15,7 +15,7 @@ import numpy as np
 from numpy import array
 from Bio import AlignIO
 from dendro.bates import rev_dfw_descendants, dfw_descendants_generalized
-from dendro.parsers import parserchoice
+from dendro.parsers import chooseparser
 from dendro.converters import converterchoice
 from dendro.any import methodchoice
 
@@ -299,17 +299,18 @@ def main():
     parser = ap.ArgumentParser(description=__doc__)
     parser.add_argument('alfile')
     parser.add_argument('treefile')
-    parser.add_argument('-p', '--parser', default='ete3_f1', help='[%(default)s]')
+    parser.add_argument('-p', '--parser', default='ete3:1', help='[%(default)s]')
     parser.add_argument('-c', '--codon', action='store_true')
     parser.add_argument('-s', '--states', action='store_true')
 
     args = parser.parse_args()
 
     al = AlignIO.read(args.alfile, format='fasta')
-    
-    parse = parserchoice[args.parser]
-    convert = converterchoice[args.parser]['ete3']
-    method = methodchoice[args.parser]
+
+    treetype = args.parser.split(':',1)[0].strip().lower()
+    parse = chooseparser(args.parser)
+    convert = converterchoice[treetype]['ete3']
+    method = methodchoice[treetype]
     get_children = method.get_children
     get_label = method.get_label
     get_root = method.get_root

@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding:utf8 -*-
 
-"""Interactively display a tree using ete3."""
+
+"""Interactively display a tree using Ete3."""
+
 
 from sys import stdin, stderr
 import os.path as op
 import ete3
 import argparse
-#import fileinput
 
 
 def fileinputtrees():
     newicks = ['']
-    #lines = [stdin.readline()]
 
-    #while lines:
     for line in stdin:
 
         line_chunks = line.rstrip().split(';')
-        #[chunk for chunk in line.rstrip().split(';') if chunk]
-        
+
         newicks[-1] += line_chunks.pop(0)
         for chunk in line_chunks:
             newicks[-1] += ';'
@@ -29,9 +27,6 @@ def fileinputtrees():
         newicks.pop()
     return newicks
 
-    ## Méthode yolo
-    #return [newick.rstrip() + ';' for newick in stdin.read().split(';')
-    #        if newick.rstrip()]
 
 def make_treename(newickfile):
     try:
@@ -43,33 +38,46 @@ def make_treename(newickfile):
         return op.splitext(op.basename(newickfile))[0]
 
 
-def main(newickfiles, subnewick_format=1, rootnode=None, ladderize=False,
+PARSER_OPTIONS = {'q': ('quoted_node_names', True),
+                  **{i: ('format', int(i)) for i in list('0123456789') + ['100']}}
+
+
+def main(newickfiles, rootnode=None, ladderize=False,
          show_internal=False, show_dists=False, nodesize=1, text=False,
-         compact=False, output=None, parser='ete3'):
-    #newicks = fileinput.input(files=newickfiles)
-    if parser.lower() == 'ete3':
+         compact=False, output=None, parser='ete3:1'):
+    parser, _, parser_optiontext = parser.partition(':')
+    parser = parser.strip().lower()
+    if parser == 'ete3':
+        # try to not depend on the dendro.converters module
+        parser_options = parser_optiontext.split(',')
+        parser_kwargs = {}
+        for opt in parser_options:
+            try:
+                key, value = PARSER_OPTIONS[opt]
+            except KeyError:
+                raise ValueError('Invalid Ete3 parser option %r (not in q,0..9,100)' % opt)
+            parser_kwargs[key] = value
         def parse_trees(newickfiles):
             if not newickfiles:
                 newickfiles = fileinputtrees()
-                #print(newickfiles)
             for newick in newickfiles:
-                #print('subnewick format = %d' % subnewick_format)
                 try:
-                    tree = ete3.Tree(newick, format=subnewick_format)
+                    tree = ete3.Tree(newick, **parser_kwargs)
                 except:
                     print("newick=%r" % newick, file=stderr)
                     raise
                 yield tree, make_treename(newick)
     else:
-        from dendro.parsers import parserchoice
+        from dendro.parsers import chooseparser, eval_optiontext
         from dendro.converters import converterchoice
-        treeparser = parserchoice[parser]
+        treeparser = chooseparser(parser)
         treeconverter = converterchoice[parser]['ete3']
+        parser_kwargs = eval_optiontext(parser_optiontext)
         def parse_trees(treefiles):
             if not treefiles:
                 treefiles = [stdin]
             for treefile in treefiles:
-                for tree in treeparser(treefile):
+                for tree in treeparser(treefile, **parser_kwargs):
                     yield treeconverter(tree), make_treename(treefile)
 
     for i, (tree, treename) in enumerate(parse_trees(newickfiles), start=1):
@@ -83,7 +91,6 @@ def display_onetree(tree, treename=None, rootnode=None, ladderize=False,
                     text=False, compact=False, output=None):
 
     if rootnode:
-        #print(tree.search_nodes(name=rootnode))
         tree = tree.search_nodes(name=rootnode)[0]
 
     if ladderize:
@@ -99,7 +106,7 @@ def display_onetree(tree, treename=None, rootnode=None, ladderize=False,
         ts = ete3.TreeStyle()
         if show_dists:
             ts.show_branch_length = True
-        
+
         def mybasiclayout(node):
             node.set_style(mynodestyle)
 
@@ -121,9 +128,6 @@ def display_onetree(tree, treename=None, rootnode=None, ladderize=False,
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('newickfiles', nargs='*')
-    parser.add_argument('-f', dest='subnewick_format', default=1, type=int,
-                        help='subnewick format (from 0 to 9, or 100), ' \
-                             'see ete3 documentation. [%(default)s]')
     parser.add_argument('-r', dest='rootnode', help='rootnode: name of an ' \
                         'internal node to take as root.')
     parser.add_argument('-l', dest='ladderize', action='store_true',
@@ -138,11 +142,10 @@ if __name__=='__main__':
     parser.add_argument('-c', '--compact', action='store_true',
                         help='Compact output (only with --text)')
     parser.add_argument('-o', '--output', help='save to output file')
-    parser.add_argument('-p', '--parser', default='ete3',
-                        choices=['ete3', 'prottree', 'phyltree'],
-                        help='Implementation to use. [%(default)s]')
-    
+    parser.add_argument('-p', '--parser', default='ete3:1',
+                        help='Implementation to use (ete3/prottree/phyltree + optional args) [%(default)s]')
+
     args = parser.parse_args()
-    
+
     main(**vars(args))
 

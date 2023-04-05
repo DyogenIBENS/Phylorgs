@@ -7,6 +7,7 @@ from sys import stdin
 import os.path as op
 import re
 from collections import OrderedDict
+from functools import partial
 import logging
 logger = logging.getLogger(__name__)
 
@@ -179,15 +180,112 @@ def iter_as_skbio(treefile, *args, **kwargs):
 
 
 
-parserchoice = {'phyltree': iter_as_phyltree,
-                'PhylTree': iter_as_phyltree,
-                'Phyltree': iter_as_phyltree,
-                'prottree': iter_as_prottree,
-                'ProtTree': iter_as_prottree,
-                'Prottree': iter_as_prottree,
-                'ete3':     iter_as_ete3,
-                'Ete3':     iter_as_ete3,
-                'ete3_f1':  lambda treefile: iter_as_ete3(treefile, format=1),
-                'Ete3_f1':  lambda treefile: iter_as_ete3(treefile, format=1),
-                'skbio':    iter_as_skbio,
-                'biophylo': iter_as_biophylo}
+PARSERS = {'phyltree': iter_as_phyltree,
+           'prottree': iter_as_prottree,
+           'proteintree': iter_as_prottree,
+           'ete3':     iter_as_ete3,
+           'ete3_f1':  partial(iter_as_ete3, format=1),
+           'skbio':    iter_as_skbio,
+           'biophylo': iter_as_biophylo}
+
+
+def eval_optiontext(argtext):
+    """Build list of parser arguments from a code string (comma separated)"""
+    kwargs = {}
+    for item in argtext.split(','):
+        try:
+            key, value = item.split('=', maxsplit=1)
+        except ValueError:
+            if item:
+                kwargs[item.strip()] = True
+            continue
+
+        key = key.strip()
+        value = value.strip()
+
+        if value.lower() in ('none', 'true', 'false'):
+            value = eval(value.capitalize())
+        else:
+            try:
+                value = int(value)
+            except ValueError:
+                try:
+                    value = float(value)
+                except ValueError:
+                    pass
+
+        kwargs[key] = value
+    return kwargs
+
+
+PARSERSPEC_HELP = """
+Parser specification code
+=========================
+
+# Parser name
+
+Name of a python module for parsing tree files. It can be one of (case insensitive):
+
+    Ete3, PhylTree, ProtTree, BioPhylo, skbio.
+
+# Parser options
+
+Arbitrary reader/writer options can be appended, after a colon, separated by commas:
+
+* "key=value" form, such as "format=2"
+* "flag" form, which sets "flag=True"
+
+Ete3 short option codes:
+
+* reader/writer options:
+    f: format  q: quoted_node_names  0: format=0  1: format=1  ... 100: format=100
+* writer-only options (ignored for parsing):
+    r: format_root_node  d: dist_formatter  s: support_formatter  n: name_formatter
+
+# Examples
+
+    "ete3:1"   -> "ete3:format=1"
+    "ete3:q"   -> "ete3:quoted_node_names=True
+    "ete3:1,q" -> "ete3:format=1,quoted_node_names=True
+"""
+
+# Short option names for the ete3 parser specification:
+LONG_KWARGS_ETE3 = dict(f='format', q='quoted_node_names', r='format_root_node',
+                        d='dist_formatter', s='support_formatter', n='name_formatter',
+                        **{i: ('format', int(i)) for i in list('0123456789')+['100']})
+
+
+def expand_short_options(options: dict, long_codes: dict):
+    for key, val in list(options.items()):
+        try:
+            new = long_codes[key]
+        except KeyError:
+            continue
+        newval = options.pop(key)
+        if isinstance(new, tuple):
+            new, newval = new
+        options[new] = newval
+
+
+def chooseparser(parserspec, silent=False):
+    parsername, _, argtext = parserspec.partition(':')
+    parsername = parsername.strip().lower()
+
+    if not argtext:
+        return PARSERS[parsername]
+
+    kwargs = eval_optiontext(argtext)
+
+    if parsername == 'ete3':
+        # Replace the short option names
+        expand_short_options(kwargs, LONG_KWARGS_ETE3)
+        # discard options that are only used in output:
+        for out_option in ('format_root_node', 'dist_formatter', 'support_formatter', 'name_formatter'):
+            try:
+                del kwargs[out_option]
+                if not silent:
+                    logger.warning('Ete3 writer option %r ignored for parsing' % out_option)
+            except KeyError:
+                pass
+
+    return partial(PARSERS[parsername], **kwargs)

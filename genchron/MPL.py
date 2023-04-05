@@ -2,6 +2,14 @@
 # -*- coding: utf-8 -*-
 
 
+"""
+Mean-Path-Length node dating (Britton et al 2002, 2007):
+
+It produces an ultrametric tree by averaging path lengths (sum of branch lengths)
+from an internal node to its descendant leaves.
+"""
+
+
 from sys import stdin, stdout, stderr
 import re
 import os.path as op
@@ -11,7 +19,7 @@ from queue import deque
 import numpy as np
 import scipy.stats as st
 
-from dendro.parsers import parserchoice
+from dendro.parsers import chooseparser, eval_optiontext, expand_short_options, LONG_KWARGS_ETE3
 from dendro.converters import converterchoice
 from genomicustools.identify import GENE2SP
 from dendro.reconciled import get_taxon, get_taxon_treebest
@@ -835,11 +843,12 @@ def save_ages(ages, opened_outfile):
                              + "\n")
 
 
-def save_mpl_tree(tree, anc_ages, opened_outfile):
+def save_mpl_tree(tree, anc_ages, opened_outfile, **write_kwargs):
+    write_kwargs = {'format': 1, 'format_root_node': True, **write_kwargs}
     #TODO: understand why the age_* features do not appear.
     for node in tree.iter_descendants():
         node.dist = anc_ages[node.up.name] - anc_ages[node.name]
-    opened_outfile.write(tree.write(format=1, format_root_node=True) + '\n')
+    opened_outfile.write(tree.write(**write_kwargs) + '\n')
 
 
 def add_MPL_options_to_parser(parser):
@@ -880,12 +889,10 @@ Example to date all internal nodes except a calibrated speciation:
 
 def main():
     logging.basicConfig(format='%(levelname)s:%(funcName)-16s %(message)s')
-    parser = ap.ArgumentParser(description=__doc__)
+    parser = ap.ArgumentParser(description=__doc__, formatter_class=ap.RawTextHelpFormatter)
     parser.add_argument('treefile', help='"-" for stdin.')
-    parser.add_argument('calibfile', #nargs='?',
-                        help='column file')
-    #parser.add_argument('-p', '--phyltreefile')
-    parser.add_argument('-p', '--parser', default='ete3_f1', help='[%(default)s]')
+    parser.add_argument('calibfile', help='tabulated file: node name, calibration')
+    parser.add_argument('-p', '--parser', default='ete3:1', help='[%(default)s]')
     parser.add_argument('-D', '--delimiter', default='\t',
                         help='Column separator in the calibfile [%(default)r]')
     parser.add_argument('-a', '--ages-column', default=1,
@@ -960,8 +967,13 @@ def main():
     if not args.totree:
         print('\t'.join(header))
 
-    parse = parserchoice[args.parser]
-    convert = converterchoice[args.parser]['ete3']
+    parse = chooseparser(args.parser)
+    treetype, _, tree_optiontext = args.parser.partition(':')
+    treetype = treetype.strip().lower()
+    if args.to_tree:
+        tree_write_kwargs = eval_optiontext(tree_optiontext)
+        expand_short_options(tree_write_kwargs, LONG_KWARGS_ETE3)
+    convert = converterchoice[treetype]['ete3']
     tree_nb = 0
     for tree_obj in parse(stdin if args.treefile=='-' else args.treefile):
         tree_nb += 1
@@ -992,7 +1004,7 @@ def main():
             age_col = header.index('age_'+measures[0])
             # Better have unique node names.
             anc_ages = {row[0]: row[age_col] for row in ages}
-            save_mpl_tree(tree, anc_ages, stdout)
+            save_mpl_tree(tree, anc_ages, stdout, **tree_write_kwargs)
         else:
             save_ages(ages, stdout)
 

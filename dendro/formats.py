@@ -21,7 +21,6 @@ The support values may be placed inconsistently between formats/programs:
 
 Notes:
 The Bio.Phylo.convert doesn't properly convert the comments from BEAST Nexus files.
-
 """
 
 
@@ -32,8 +31,6 @@ from Bio.Phylo import NewickIO
 from Bio.Nexus import Nexus
 from dendro.parsers import beast_comment_parser, nhx_comment_parser, read_newick2nexus
 from dendro.converters import BioNexusTrees_to_BioPhylo
-
-
 
 
 def comment_formatter(variables: dict, float_fmt='%g', sep=':', begin='&&NHX:'):

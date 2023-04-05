@@ -10,23 +10,23 @@
 
 import sys
 import argparse
-#from dendro.bates import dfw_descendants_generalized
 from collections import Counter
 from itertools import zip_longest, product
 import logging
 logger = logging.getLogger(__name__)
 
-import dendro.parsers as treeparsers
-import dendro.converters as treeconverters
+from dendro.parsers import chooseparser
+from dendro.converters import converterchoice
 
 import signal, traceback
 
 
-interrupted = 0
+_interrupted = 0
+
 def debug_variables_at_sigint(sig, frame):
-    global interrupted
-    if interrupted == 0:
-        interrupted = 1
+    global _interrupted
+    if _interrupted == 0:
+        _interrupted = 1
     else:
         # Quit for real.
         traceback.print_stack(frame)
@@ -175,9 +175,9 @@ def match_clades(tree1, tree2, exact=False):
             matching_cl = []
             matched_sp = set()
             unmatched_sp = set(spset1)
-            
+
             while matched_sp != spset1:
-                if interrupted:
+                if _interrupted:
                     raise KeyboardInterrupt("In while loop at:\n"
                             + "clade1: %s\n" % clade1
                             + "spset1: %s\n" % spset1
@@ -214,7 +214,7 @@ def match_clades(tree1, tree2, exact=False):
                 # Avoid infinite loops
                 if not unmatched_sp:
                     break
-            
+
             matching_cl_str = '+'.join(sorted(matching_cl))  # sort line for reproducibility
             if len(matching_cl) >= 1:
                 # add this (possibly polyphyletic) clade to the reference tree.
@@ -228,30 +228,26 @@ def match_clades(tree1, tree2, exact=False):
 def ensure_uniq_names(tree, order='levelorder', inplace=True):
     if not inplace:
         tree = tree.copy()
-    c = Counter()
+    counts = Counter()
     for node in tree.traverse(order):
-        name_c = c[node.name]
-        c[node.name] += 1
+        name_c = counts[node.name]
+        counts[node.name] += 1
         if name_c:
             node.name = ('%s.%d' %(node.name, name_c)) if node.name else str(name_c)
     if not inplace:
         return tree
 
 
-def main(treefile1, treefile2, exact=False, sort=False, parser='PhylTree',
+def main(treefile1, treefile2, exact=False, sort=False, parser='phyltree',
          output='<=>!', node_order='levelorder'):
-    try:
-        parse_trees = treeparsers.parserchoice[parser]
-        to_ete3 = treeconverters.converterchoice[parser]['ete3']
+    parse_tree = chooseparser(parser)
+    to_ete3 = converterchoice[parser.split(':', 1)[0].strip().lower()]['ete3']
 
-        def iter_trees(treefile, *args, **kwargs):
-            for tree in parse_trees(treefile, *args, **kwargs):
-                tree = to_ete3(tree)
-                ensure_uniq_names(tree, node_order)
-                yield tree
-
-    except KeyError:
-        raise ValueError('Bad parser value', parser)
+    def iter_trees(treefile, *args, **kwargs):
+        for tree in parse_tree(treefile, *args, **kwargs):
+            tree = to_ete3(tree)
+            ensure_uniq_names(tree, node_order)
+            yield tree
 
     print(treefile1 + '\t' + treefile2)
     for tree1, tree2 in zip_longest(iter_trees(treefile1), iter_trees(treefile2)):
@@ -286,7 +282,7 @@ if __name__ == '__main__':
                         help='Do not attempt fuzzy matching of not found leaves.')
     parser.add_argument('-s', '--sort', action='store_true')
     parser.add_argument('-p', '--parser', default='PhylTree',
-                        help=('Choices: "ete3", "PhylTree", "ProtTree" (case '
+                        help=('Choices: "Ete3", "PhylTree", "ProtTree" (case '
                               'insensitive) [%(default)s]'))
     parser.add_argument('-n', '--node-order', default='levelorder',
                         choices=['levelorder', 'preorder', 'postorder'],
@@ -299,6 +295,6 @@ if __name__ == '__main__':
                               '`<` only in left tree,\n'
                               '`>` only in right tree.\n'
                               '[%(default)r]'))
-    
+
     args = parser.parse_args()
     main(**vars(args))

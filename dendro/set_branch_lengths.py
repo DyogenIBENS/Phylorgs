@@ -10,7 +10,7 @@ import argparse as ap
 from copy import deepcopy
 from math import nan
 
-from dendro.parsers import parserchoice
+from dendro.parsers import chooseparser, eval_optiontext, expand_short_options, LONG_KWARGS_ETE3
 from dendro.any import methodchoice
 from dendro.bates import dfw_descendants_generalized
 
@@ -72,8 +72,7 @@ def main():
                         'if only 2 columns: node label, new value (do not match'
                         "parent). '-' for stdin."))
     parser.add_argument('treefiles', nargs='+')
-    parser.add_argument('-p', '--parser', default='ete3_f1',
-                        help='[%(default)s]')
+    parser.add_argument('-p', '--parser', default='ete3:1', help='[%(default)s]')
     parser.add_argument('-u', '--unfound', default='nan', choices=['raise', 'nan', 'keep'],
                         help='How to update tree edges not found in table [%(default)s]')
     modif_parser = parser.add_mutually_exclusive_group()
@@ -103,17 +102,22 @@ def main():
         if args.lengths_table == '-':
             f.close()
 
-    print_newick = methodchoice[args.parser].print_newick
+    treetype, _, tree_optiontext = args.parser.partition(':')
+    treetype = treetype.strip().lower()
+    parse_tree = chooseparser(args.parser, silent=True)
+
+    print_newick = methodchoice[treetype].print_newick
+    write_kwargs = eval_optiontext(tree_optiontext)
+    expand_short_options(write_kwargs, LONG_KWARGS_ETE3)
 
     for treefile in args.treefiles:
-        for tree in parserchoice[args.parser](treefile):
-            print_newick(set_branch_lengths(tree, lengths, args.parser,
-                                            args.multiply, args.add, args.unfound))
+        for tree in parse_tree(treefile):
+            print_newick(set_branch_lengths(tree, lengths, treetype,
+                                            args.multiply, args.add, args.unfound),
+                        **write_kwargs)
 
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)s:%(funcName)-20s:%(message)s')
     #logger.setLevel(logging.DEBUG)
     main()
-
-
