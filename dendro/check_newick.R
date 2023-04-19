@@ -51,6 +51,8 @@ argopts <- readopts("-b"=list(type="logical",
                               help="1 if tree is rooted."),
                     "-u"=list(type="double", default=Inf,
                               help="1 if tree not ultrametric above given precision"),
+                    "-l"=list(type="logical",
+                              help="print the full list of leaves"),
                     "-q"=list(type="logical",
                               help="quiet")
                     )
@@ -61,9 +63,14 @@ opts <- argopts$opts
 rooted <- is.rooted(tr)
 binary <- is.binary(tr)
 
+if( opts[['-l']] ) {
+  cat(Ntip(tr), "tips:", paste(tr$tip.label, collapse=','), '\n')
+} else {
+  cat(Ntip(tr), "tips.\n")
+}
+
 if( !opts[['-q']] )
-  cat(Ntip(tr), " tips: ", paste(tr$tip.label, collapse=','), '\n',
-      "is.rooted:", ifelse(rooted, '', '\033[31m'), rooted, ifelse(rooted, '', '\033[00m'), "\n",
+  cat("is.rooted:", ifelse(rooted, '', '\033[31m'), rooted, ifelse(rooted, '', '\033[00m'), "\n",
       "is.binary:", ifelse(binary, '', '\033[31m'), binary, ifelse(binary, '', '\033[00m'), "\n", sep='')
 
 fail <- (opts[['-r']] && !rooted) || ( opts[['-R']] && rooted)

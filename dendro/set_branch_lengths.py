@@ -30,7 +30,15 @@ def set_branch_lengths(tree, lengths, treetype='ete3', multiply=False, add=False
     root = methods.get_root(tree)
     #newtree = deepcopy(tree)
 
-    for node, children in dfw_descendants_generalized(tree, get_children, queue=[root]):
+    # Avoid RecursionError in dfw_descendants_generalized:
+    if treetype == 'ete3':
+        def iter_descendants(tree, *args, **kwargs):
+            for node in tree.traverse('preorder'):
+                yield node, node.children
+    else:
+        iter_descendants = dfw_descendants_generalized
+
+    for node, children in iter_descendants(tree, get_children, queue=[root]):
         nodename = get_label(tree, node)
         newitems = []
         for ch in children:

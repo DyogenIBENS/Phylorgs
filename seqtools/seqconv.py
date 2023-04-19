@@ -25,10 +25,12 @@ EXT2FMT = {'fa': 'fasta',
            'mfa': 'multifasta',
            'phy': 'phylip-sequential-relaxed', # 'phylip': 'phylip-relaxed',
            'nx': 'nexus', 'nex': 'nexus',
-           'paml': 'evolver', 'mphy': 'evolver'}
+           'paml': 'evolver', 'mphy': 'evolver',
+           'sto': 'stockholm' # input not implemented yet
+           }
 
 
-PHYLIP_HEAD_REG = re.compile(r'^\s*\d+\s+\d*$')
+PHYLIP_HEAD_REG = re.compile(r'^\s*\d+\s+\d*$')  # nseq, nsites
 
 
 def guess_format(filename, default='fasta'):
@@ -117,7 +119,7 @@ def split_multidata(f, sep='', start=0, end=None):
     #print(''.join(line[:20].rstrip() + '\n' for line in al_lines))
 
 
-def write_phylip_sequential_relaxed(al, outfile):
+def write_phylip_sequential_relaxed(al, outfile, stockholm_data=None):
     """Bio implements:
     - phylip (strict, interleaved),
     - phylip-sequential (strict, sequential),
@@ -135,7 +137,12 @@ def write_phylip_sequential_relaxed(al, outfile):
         was_closed = False
         pass  # Already an opened file object.
     try:
-        outfile.write('%d\t%d\n' % (len(al), al.get_alignment_length()))
+        if stockholm_data is not None:
+            # Stockholm formatted metadata (comments)
+            outfile.write('# STOCKHOLM 1.0\n')
+            outfile.write('\n'.join('#=%s %s' % item for item in stockholm_data) + '\n')
+        else:
+            outfile.write('%d\t%d\n' % (len(al), al.get_alignment_length()))
         for record in al:
             outfile.write('%s  %s\n' % (record.name, record.seq))
     finally:
@@ -144,8 +151,11 @@ def write_phylip_sequential_relaxed(al, outfile):
 
 
 def convert_one_dataset(infile, out, fro='fasta', to='phylip-sequential-relaxed'):
-    if to == 'phylip-sequential-relaxed':
-        write_phylip_sequential_relaxed(AlignIO.read(infile, fro), out)
+    if to in ('phylip-sequential-relaxed', 'stockholm'):
+        metadata = None
+        if to == 'stockholm' and isinstance(infile, (str, bytes)):
+            metadata = [('GF ID', op.basename(op.splitext(infile)[0]))]
+        write_phylip_sequential_relaxed(AlignIO.read(infile, fro), out, metadata)
     else:
         AlignIO.convert(infile, fro, out, to)
 
@@ -195,7 +205,7 @@ def main(infiles, outfile=None, fro=None, to=None):
                     n_al += 1
                     convert_one_dataset(aldata, out, srcfmt, to)
                     if joint_out:
-                        out.write('\n\n')
+                        out.write('//\n\n' if to=='stockholm' else '\n\n')
                     else:
                         out.close()
             finally:
@@ -208,7 +218,7 @@ def main(infiles, outfile=None, fro=None, to=None):
             n_al += 1
             convert_one_dataset(infile, out, fro, to)
             if joint_out:
-                out.write('\n\n')
+                out.write('//\n\n' if to=='stockholm' else '\n\n')
             else:
                 out.close()
 
