@@ -732,7 +732,6 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
                            ].head(),
                        ', '.join(ages_controled[invalid_nodes].taxon.unique()))
         ages_controled.dropna(subset=['taxon_parent'], inplace=True)
-    
 
     # Do not include length from/to duplication.
     ages_controled_spe2spe = ages_controled.dropna(subset=['taxon_parent']).query('type != "dup" & type_parent != "dup"')
@@ -812,11 +811,14 @@ def check_control_dates_lengths(control_brlen, phyltree, root,
     median_measures = ['median_brlen_%s' % m for m in measures]
     median_brlen_sum = control_brlen[median_measures].sum()
     print("Sum of median branch lengths =", median_brlen_sum, "My", file=out)
-    timetree_brlen_sum = control_brlen.timetree_brlen.sum()
-    print("Sum of timetree branch lengths =", timetree_brlen_sum, "My", file=out)
-    real_timetree_brlen_sum = sum(expected_dists)
-    print("Real sum of TimeTree branch lengths (in phyltree) =",
-          real_timetree_brlen_sum, "My", file=out)
+    if 'timetree_brlen' in control_brlen:
+        timetree_brlen_sum = control_brlen.timetree_brlen.sum()
+        print("Sum of timetree branch lengths =", timetree_brlen_sum, "My", file=out)
+        real_timetree_brlen_sum = sum(expected_dists)
+        print("Real sum of TimeTree branch lengths (in phyltree) =",
+              real_timetree_brlen_sum, "My", file=out)
+    else:
+        print("No branch lengths from TimeTree", file=out)
 
     unexpected_branches = set(control_brlen.index) - set(expected_branches)
     if unexpected_branches:
@@ -828,11 +830,12 @@ def check_control_dates_lengths(control_brlen, phyltree, root,
                      lost_branches)
 
     median_treelen_phyltree = control_brlen.reindex(list(expected_branches))[median_measures].sum()
-    timetree_treelen_phyltree = control_brlen.reindex(list(expected_branches)).timetree_brlen.sum()
-    print("Sum of median branch lengths for branches found in phyltree =\n",
-          str(median_treelen_phyltree).replace('\n', '\t\n'), file=out)
-    print("Sum of timetree branch lengths for branches found in phyltree =",
-          timetree_treelen_phyltree, file=out)
+    if 'timetree_brlen' in control_brlen:
+        timetree_treelen_phyltree = control_brlen.reindex(list(expected_branches)).timetree_brlen.sum()
+        print("Sum of median branch lengths for branches found in phyltree =\n",
+              str(median_treelen_phyltree).replace('\n', '\t\n'), file=out)
+        print("Sum of timetree branch lengths for branches found in phyltree =",
+              timetree_treelen_phyltree, file=out)
     return unexpected_branches, lost_branches
 
 
@@ -2181,15 +2184,16 @@ class fullRegression(object):
             suggested_transform = test_transforms(alls,
                                     [ft for ft in responses+features
                                         if ft not in impose_transform],
-                                    out=self.out, widget=self.widget) #ages_features + rate_features
-            #TODO: add to self.displayed
-
+                                    out=self.out, widget=self.widget)
             suggested_transform.update(**dict(
                                         ( ft, t(alls[ft]) )
                                         if (t.__name__ == 'make_best_logtransform' and ft in alls)
                                         else (ft,t)
                                         for ft,t in impose_transform.items())
                                       )
+            # List the features that were skipped because constant, or non numeric/bool
+            self.features_constant = [ft for ft in responses+features if ft not in suggested_transform]
+
 
             if ref_suggested_transform:
                 onlyref = []
@@ -2226,10 +2230,14 @@ class fullRegression(object):
                     print('Different transform args:\n', '\n'.join('%35s\t%s' % t for t in diff_args), file=self.out)
 
             for ft in list(suggested_transform.keys()):
+                delete_hardcoded = []
                 if ft not in alls.columns:
-                    self.logger.warning('Hardcoded feature %s not available: delete.', ft)
+                    delete_hardcoded.append(ft)
                     suggested_transform.pop(ft)
+            if delete_hardcoded:
+                self.logger.warning('%d hardcoded features not available, delete: %s', len(delete_hardcoded), ', '.join(delete_hardcoded))
 
+            self.features_delete_hardcoded = delete_hardcoded
             self._suggested_transform = suggested_transform
             return suggested_transform
 
@@ -2267,7 +2275,8 @@ class fullRegression(object):
 
         self.prepare_design_matrix()
         alls = self.alls
-        print('%d observation × %d features' % alls.shape, file=self.out)
+        print('%d observation × %d columns; %d input features.' % (alls.shape + (len(set(features).intersection(alls.columns)),)),
+              file=self.out)
         if set(features).difference(alls.columns):
             raise KeyError('Not in data: %s' % set(features).difference(alls.columns))
 
@@ -2286,6 +2295,7 @@ class fullRegression(object):
         if many_na:
             logger.warning('Columns with >50%% of NA (kept as is): %s',
                            ' '.join(many_na))
+        self.features_too_many_na = too_many_na
 
     #def do_transforms(self):
         # Calling the cached property: depends on self.alls and self.features.
@@ -2293,10 +2303,10 @@ class fullRegression(object):
 
         # Remove constant features
         self.features = features = [ft for ft in features if ft in suggested_transform]
-        unfiltered_constant_vars = check_constants(alls[features], 'After suggest transforms', self.out)
-        if unfiltered_constant_vars:
-            logger.warning('Dropping constants %s', unfiltered_constant_vars)
-            for ft in unfiltered_constant_vars:
+        self.features_posttransform_constant = check_constants(alls[features], 'After suggest transforms', self.out)
+        if self.features_posttransform_constant:
+            logger.warning('Dropping constants %s', self.features_posttransform_constant)
+            for ft in self.features_posttransform_constant:
                 features.remove(ft)
         
         # All binary variables should **NOT** be z-scored!
@@ -2440,16 +2450,17 @@ class fullRegression(object):
                         renorm_unregress: 'renorm_unregress',
                         renorm_unregress0: 'renorm_unregress0'}
 
+        # First drop features that were excluded manually (after seeing the first PCA).
         try:
             a_n_inde = a_n.drop(must_drop_features, axis=1)
             #a_t.drop(must_drop_features, axis=1, inplace=True)
         except KeyError as err:
             logger.warning("Not in `self.a_n`:" + err.args[0])
             a_n_inde = a_n.drop(must_drop_features, axis=1, errors='ignore')
-        logger.info('Dropped: %s', ' '.join(a_n.columns.intersection(must_drop_features)))
-        print('%d Independent features (%d rows)' % a_n_inde.shape[::-1], file=self.out)
+        logger.info('Manual drop: %s', ' '.join(a_n.columns.intersection(must_drop_features)))
+        print('%d Independent columns (%d rows)' % a_n_inde.shape[::-1], file=self.out)
 
-        #self.missing_todecorr = Args.fromitems()
+        # Check for unfound variables that were selected for decorr.
         self.missing_todecorr = [pair for pair in
                      chain(*(decorr_args.values() for decorr_args in self.to_decorr.values()))
                      if pair[0] not in a_t or pair[1] not in a_t]
@@ -2463,17 +2474,11 @@ class fullRegression(object):
             logger.warning('Dropped before renorm(log)decorr: %s',
                            self.dropped_todecorr)
         # Filtered
-        #valid_pair = lambda pair: (pair[0] in a_t and pair[1] in a_t
-        #                                and pair[0] not in must_drop_features)
         valid_item = lambda item: (item[1][0] in a_t
                                             and item[1][1] in a_t
                                             and item[1][0] not in must_drop_features)
 
-        #to_renormlogdecorr = (list(filter(valid_pair, self.to_renormlogdecorr[0])),
-        #                      dict(filter(valid_item, self.to_renormlogdecorr[1].items())))
-        #to_renormdecorr = (list(filter(valid_pair, self.to_renormdecorr[0])),
-        #                   dict(filter(valid_item, self.to_renormdecorr[1].items())))
-        to_decorr = {decorr_func: Args.fromitems( #*filter(valid_pair, decorr_args.args),
+        to_decorr = {decorr_func: Args.fromitems(
                                        *filter(valid_item, decorr_args.items()))
                     for decorr_func, decorr_args in self.to_decorr.items()}
 
@@ -2528,14 +2533,12 @@ class fullRegression(object):
             else:
                 logger.warning(msg)
 
-        ##assert 'sitelnL' in set(to_renormlogdecorr[1]).union(to_renormdecorr[1])
         #a_n_inde = renorm_decorrelatelogs(a_n_inde, a_t[~na_rows_n],
         #                                 *to_renormlogdecorr[0],
         #                                 **to_renormlogdecorr[1])
         #a_n_inde = renorm_decorrelate(a_n_inde, a_t[~na_rows_n],
         #                              *to_renormdecorr[0],
         #                              **to_renormdecorr[1])
-        ##assert 'sitelnL' in a_n_inde
 
         #self.missing_zeros_todecorr = [pair for pair in self.to_subtract#[0]
         #                          if pair[0] not in a_t or pair[1] not in a_t]
@@ -2565,11 +2568,13 @@ class fullRegression(object):
                         logger.error("INCONSISTENCY in unregress residuals: %s~%s", var, corrvar)
             #elif isinstance(decorr_func, partial) and decorr_func.args[0].__name__ == 'refdecorr':
 
-        # special_decorr
-        CpG_odds = (self.alls.ingroup_mean_CpG / (self.alls.ingroup_mean_GC**2))[~na_rows_n & ~inf_rows_n]
-        CpG_odd_transform = make_best_logtransform(CpG_odds)
-        a_n_inde['CpG_odds'] = CpG_odd_transform(CpG_odds)
-        print('%d independent features (%d rows)' % a_n_inde.shape[::-1], file=self.out)
+        # FIXME: special hardcoded decorr
+        if set(('ingroup_mean_CpG', 'ingroup_mean_GC')).intersection(self.alls.columns):
+            CpG_odds = (self.alls.ingroup_mean_CpG / (self.alls.ingroup_mean_GC**2))[~na_rows_n & ~inf_rows_n]
+            CpG_odd_transform = make_best_logtransform(CpG_odds)
+            a_n_inde['CpG_odds'] = CpG_odd_transform(CpG_odds)
+
+        print('%d independent columns (%d rows)' % a_n_inde.shape[::-1], file=self.out)
 
         #TODO: fix decorrs
         #self.fix_decorr()
@@ -2577,7 +2582,8 @@ class fullRegression(object):
         to_decorr_iter_args = [(decorr_func, *item)
                                for decorr_func, decorr_args in to_decorr.items()
                                for item in decorr_args.items()]
-        to_decorr_iter_args.append(('CpG/GC^2', 'CpG_odds', ('ingroup_mean_CpG', 'ingroup_mean_GC')))
+        if set(('ingroup_mean_CpG', 'ingroup_mean_GC')).intersection(self.alls.columns):
+            to_decorr_iter_args.append(('CpG/GC^2', 'CpG_odds', ('ingroup_mean_CpG', 'ingroup_mean_GC')))
         if self.widget:
             to_decorr_iter_args = self.widget(to_decorr_iter_args)
         for decorr_func, *decorr_item in to_decorr_iter_args:
@@ -2605,7 +2611,8 @@ class fullRegression(object):
                                 (k, (var1, decorr_symbol.get(decorr_func, str(decorr_func)), var2))
                              for decorr_func, decorr_args in to_decorr.items()
                              for k, (var1, var2) in decorr_args.items())
-        self.decorred.update(
+        if set(('ingroup_mean_CpG', 'ingroup_mean_GC')).intersection(self.alls.columns):
+            self.decorred.update(
                 CpG_odds=('ingroup_mean_CpG', '/', 'ingroup_mean_GC^2'))
         # Discriminate binary features from continuous ones, to choose "standardize" instead of "zscore".
         decorred_continuous = []
@@ -2621,7 +2628,7 @@ class fullRegression(object):
         self.decorr_source = {key: (key[1:] if len(tup)==2 else tup[0])
                               for key, tup in self.decorred.items()}
 
-        self.a_decorred = a_n_inde[list(self.decorred)].copy()
+        self.a_decorred = a_n_inde[list(self.decorred)].copy()  # Used in self.predict()
         self.decorred_stats = a_n_inde[list(self.decorred)].agg(['mean', 'std'])
 
         if rescale:
@@ -2839,20 +2846,19 @@ class fullRegression(object):
         print("New shape after removing bad data:", a_n_inde2.shape, file=self.out)
         print("New Mean,SD of response: %g; %g" % (
                 a_n_inde2[y].mean(), a_n_inde2[y].std()), file=self.out)
-        good_features = [ft for ft in inde_features
-                                                if ft not in set(bad_props)]
+        good_features = [ft for ft in inde_features if ft not in set(bad_props)]
 
         var_ranges = a_n_inde2[good_features].max(axis=0) - a_n_inde2[good_features].min(axis=0)
         
         #check_constants(a_n_inde2[inde_features2])
-        print('Check for newly introduced constant variables:\n',
-              var_ranges.sort_values(), file=self.out)
-        self.inde_features2, constant_varnames = [], []
+        self.inde_features2, self.features_postnorm_constant = [], []
         for ft in good_features:
             if var_ranges[ft]>0:
                 self.inde_features2.append(ft)
             else:
-                constant_varnames.append(ft)
+                self.features_postnorm_constant.append(ft)
+        print('%d/%d newly introduced constant variables:\n' % (len(self.features_postnorm_constant), len(good_features)),
+              var_ranges.sort_values(), file=self.out)
 
         # Removing bad data probably shifted Y. We need to re-center and standardize.
         self.continuous_inde_features2 = []
@@ -2876,7 +2882,6 @@ class fullRegression(object):
         else:
             self.a_n_inde2 = a_n_inde2
 
-        print('Check multi-colinearity post-removal of bad data:', file=self.out)
         print(self.suggest_multicolin2, file=self.out)
 
     def do_bestfit(self):
@@ -3030,8 +3035,10 @@ class fullRegression(object):
         nan_err = np.full(coef_err.shape, np.NaN)
 
         axes = matplotlib_stylebar(coefs.rename(renames), fig_columns,
-                                   err=np.array([coef_err]+[nan_err]*(ncols-1)))
-        ax0_xmax = axes[0].get_xlim()[1]
+                                   err=np.array([coef_err]+[nan_err]*(ncols-1)),
+                                   float_fmt='% .4f')
+        #ax0_xmax = axes[0].texts[0].get_window_extent().x1  # In figure pixels? Requires a renderer.
+        ax0_xmax = coefs['0.975]'].max()
         # Adjust significance levels if not given
         if signif_levels is None:
             raise NotImplementedError('Automatic choice of significance levels')
@@ -3044,10 +3051,8 @@ class fullRegression(object):
 
         for j, (ft, pval) in enumerate(coefs['P>|z|'].items()):
             starring = '*' * np.searchsorted(signif_levels, - pval, side='right')
-            txt = axes[0].text(ax0_xmax, j, starring, va='center', ha='left')
-        #txt_box = txt.get_window_extent()#.get_positions()
-        #print(txt_box.x0, txt_box.x1)
-        #axes[0].set_xlim(axes[0].get_xlim()[0], )
+            txt = axes[0].annotate('%-4s' % starring, (ax0_xmax, j), va='center', ha='left',
+                                   textcoords='offset points', xytext=(45,2))  # Ad hoc xytext, must go left of the coef texts.
 
         axes[0].set_xlabel(None)
         #axes[0].set_ylabel(ylabel)
@@ -3056,12 +3061,11 @@ class fullRegression(object):
         axes[0].tick_params(bottom=True, labelbottom=True)
         axes[0].grid(axis='x', color='.2', alpha=0.5)
         axes[0].set_xticklabels(['-0.5', '0', '0.5'])
-        axes[0].annotate('\n'.join('%s: p-value ≤ %g' % (('*' * i), -lvl)
+        axes[0].annotate('\n'.join('%-4s: p-value ≤ %-4g' % (('*' * i), -lvl)
                                    for i,lvl in enumerate(signif_levels, start=1)),
-                        xy=(0.98,0), xycoords='figure fraction',
-                        xytext=(-1,1), textcoords='offset points',
-                        va='bottom', ha='right', fontsize='xx-small')
-
+                        xy=(ax0_xmax, axes[0].get_ylim()[0]), #xycoords='axes fraction',
+                        xytext=(0,-18), textcoords='offset points',
+                        va='top', ha='left', fontsize='xx-small')
 
         if len(axes)>1:
             axes[1].set_xlabel(None)
@@ -3069,7 +3073,7 @@ class fullRegression(object):
         if len(axes)>2:
             axes[2].set_xlabel(None)
             axes[2].set_title(ax_titles.get(fig_columns[2], fig_columns[2]))
-        fig = plt.gcf()
+        fig = axes[0].figure
         fig.tight_layout()
         fig.set_size_inches(3+3*len(fig_columns), 0.28 * (coefs.shape[0]+2))
         return fig, axes
@@ -3240,6 +3244,74 @@ class fullRegression(object):
         prediction.predicted = predicted*self.err_t_scale + self.err_t_center
         return prediction.predicted
         # Check that predicted == fitted for the training set.
+
+    def latex_feature_summary_tables(self, longnames=None):
+        if longnames is None:
+            longnames = {}
+        print('\n### LaTeX table of fitted variables', file=self.out)
+        #write(self.reslopes2.to_latex(formatters={'transform': lambda x: '\\texttt{%s}' + x.replace('~', '\\~')}))
+        self.display("\n```latex\n" \
+                     + self.reslopes2.style\
+                        .format_index(escape='latex', axis=0)\
+                        .format(precision=4)\
+                        .applymap(lambda v: ('cellcolor:{Khaki}' if v<0.01 else
+                                        'cellcolor:{LemonChiffon!50}' if v<=0.05 else ''),
+                                         subset=['P>|z|', 'Simple regression p-value'])\
+                        .to_latex() \
+                    + "\n```\n")
+        print('\n### LaTeX table of all variables', file=self.out)
+        # see param_info[['transform', 'decorr']], based on inde_features2 though
+
+        pre_removal = []  # features removed prior to the first fit.
+        pre_removal += ['hardcoded'] * len(self.features_delete_hardcoded)
+        pre_removal += ['too many NA'] * len(self.features_too_many_na)
+        # FIXME: constant features removed in suggested_transform (during test_transforms) are missing.
+        pre_removal += ['constant'] * len(self.features_constant)
+        pre_removal += ['post-transform constant'] * len(self.features_posttransform_constant)
+        pre_removal += ['post-transform normalize constant'] * len(self.features_postnorm_constant)
+        pre_features = self.features_delete_hardcoded \
+                     + self.features_too_many_na \
+                     + self.features_constant \
+                     + self.features_posttransform_constant \
+                     + self.features_postnorm_constant  # after transform & z-score
+
+        feature_decorr = {src: new for new, src in self.decorr_source.items()}
+        feature_removal = []
+        for ft in self.features:
+            if ft in self.must_drop_features:
+                feature_removal.append('PCA drop')
+            elif ft in self.dropped_todecorr:
+                feature_removal.append('decorr denominator')
+            else:
+                track = []
+                if ft in feature_decorr:
+                    track.append('decorr')
+                    ft = feature_decorr[ft]  # use the name of the post-decorr var
+                if ft in self.bad_props_counts:
+                    track.append('bad prop')
+                elif ft in self.suggest_multicolin2:
+                    track.append('collinearity condition')
+                elif ft not in self.inde_features2:
+                    track.append('constant after bad prop')
+                elif ft not in self.selected_features2:
+                    # the feature was not retained by the last LASSO regression.
+                    track.append('Lasso drop')
+
+                feature_removal.append(', '.join(track))
+
+        self.feature_track = pd.DataFrame({'Description': [longnames.get(ft, '') for ft in pre_features+self.features],
+                                           'Removal': pre_removal + feature_removal},
+                                           index=pre_features+self.features)
+        pandas_max_rows = pd.get_option('display.max_rows')
+        pd.set_option('display.max_rows', None)
+        self.display_html(self.feature_track)
+        pd.set_option('display.max_rows', pandas_max_rows)
+        self.display("\n```latex\n" \
+            + self.feature_track.style.format_index(escape='latex', axis=0).to_latex(environment='longtable') + "\n```\n")
+
+
+
+
 
 
 def refdecorr(a, b, v, cv):

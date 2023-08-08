@@ -92,6 +92,25 @@ def get_taxon_treebest(node, *args):
         raise
 
 
+def eval_treebest_nhx_tag(node, tag='D'):
+    value = getattr(node, tag, 0)
+    try:
+        value = int(value)
+    except ValueError:
+        if value in ('N', ''):
+            value = False
+        elif value == 'Y':
+            value = True
+        elif value.lower() in ('true', 'false', 'none'):
+            value = eval(value.capitalize())
+        else:
+            try:
+                value = float(value)  # handles D=0.0 as False
+            except ValueError:
+                logger.warning("Unexpected value %r for duplication tag 'D' at node %r", value, node.name)
+    return value
+
+
 def infer_gene_event(node, taxon, children_taxa):
     """Use taxon information to tell whether a gene tree node (Ete3 format) is:
     - a leaf,
@@ -116,7 +135,9 @@ def infer_gene_event(node, taxon, children_taxa):
         return 'leaf'
 
     children_names = [ch.name for ch in node.children]
-    treebest_isdup = getattr(node, 'D', None) not in ('N', '0', 0, None) or getattr(node, 'T', None)=='Y'
+    treebest_isdup = eval_treebest_nhx_tag(node, 'D')
+    treebest_istransfer = eval_treebest_nhx_tag(node, 'T')
+    treebest_isdup = bool(treebest_isdup) or bool(treebest_istransfer)
 
     if (treebest_isdup) or taxon in children_taxa:
        #(len(children_taxa) == 1 and taxon in children_taxa): #\

@@ -1196,8 +1196,12 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
     global showtree
     showtree = def_showtree(measures, show)
 
-    phyltree = PhylTree.PhylogeneticTree(phyltreefile.format(ensembl_version))
     
+    # Redirect to stderr, because we will probably pipe the output somewhere
+    progress_out = sys.stderr if outfile in ('-', None) else sys.stdout
+
+    phyltree = PhylTree.PhylogeneticTree(phyltreefile.format(ensembl_version))
+
     if 'codeml' in measures:
         measures.remove('codeml')
         measures.extend(sorted(CODEML_MEASURES))
@@ -1245,7 +1249,7 @@ def main(outfile, resultfiles, ensembl_version=ENSEMBL_VERSION,
         for i, resultfile in enumerate(resultfiles, start=1):
             percentage = float(i) / nb_results * 100
             print("\r%5d/%-5d (%3.2f%%) %s" % (i, nb_results, percentage, resultfile),
-                  end=' ')
+                  end=' ', file=progress_out)
             try:
                 ndataset = 1
                 for result in process(resultfile, ensembl_version, phyltree,

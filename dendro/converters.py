@@ -8,6 +8,10 @@ Also see dendro.formats to switch between *file* formats.
 
 
 from dendro.bates import rev_dfw_descendants, dfw_descendants_generalized
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_data(tree, nodedist):
@@ -46,20 +50,22 @@ def ProtTree_to_ete3(prottree):
 
 
 def PhylTree_to_ete3(phyltree, nosinglechild=False):
-    # TODO: do not import ete3 here, just try to use it and raise error
     import ete3
     tree = ete3.Tree(name=phyltree.root, dist=getattr(phyltree, 'rootlength', 0))
     tree.add_features(treename=getattr(phyltree, 'name', ''))
     current_nodes = [tree]
+
+    phyltree_nodedata = []
+    for ft in ('ages', 'commonNames', 'fileName', 'indBranches', 'indNames'):
+        try:
+            phyltree_nodedata.append((ft, getattr(phyltree, ft)))
+        except AttributeError:
+            logger.warning('phyltree has no attribute %r.', ft)
+
     while current_nodes:
         current = current_nodes.pop()
-        current.add_features(age=phyltree.ages.get(current.name),
-                             commonNames=phyltree.commonNames.get(current.name),
-                             fileName=phyltree.fileName.get(current.name),
-                             indBranch=phyltree.indBranches.get(current.name),
-                             indName=phyltree.indNames.get(current.name),
-                             )
-                             #officialName=phyltree.officialName.get(current.name),
+        extra_features = {}
+        current.add_features(**{ft: data.get(current.name) for ft, data in phyltree_nodedata})
         childlist = phyltree.items.get(current.name, [])
         if not childlist:
             current.add_features(Esp2X=(current.name in phyltree.lstEsp2X),

@@ -125,7 +125,7 @@ def tolong(df, x=None, subset=None, varname=None, idname=None):
 
 
 def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
-                        err=None, ticks=False, float_fmt='%.5f',
+                        err=None, ticks=False, float_fmt='% .5f',
                         text_above=False, text_kwargs=None):
     """Like pandas.DataFrame.style.bar, but with matplotlib.
     
@@ -148,20 +148,22 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
         kind = 'barh'
         sharex, sharey = False, True
         layout = (1, len(y))
-        text_kwargs = dict(va=('bottom' if text_above else 'center'), ha='right',
+        text_kwargs = dict(va=('bottom' if text_above else 'center'), ha='left',
+                           textcoords='offset points', xytext=(3,0),
                            **({} if text_kwargs is None else text_kwargs))
-        text = lambda ax, pos, val: ax.text(ax.get_xlim()[1], pos, float_fmt % val,
-                                            **text_kwargs)
+        text = lambda ax, pos, val, txt_y: ax.annotate(float_fmt % val, (txt_y, pos),
+                                                       **text_kwargs)
         xerr, yerr = err, None
     else:
         kind = 'bar'
         sharex, sharey = True, False
         layout = (len(y), 1)
-        text_kwargs = dict(ha='center', va='top', rotation=90,  # text_above is not going to work
+        text_kwargs = dict(ha='center', va='bottom', rotation=90,  # text_above is not going to work
+                           textcoords='offset points', xytext=(0,3),
                            **({} if text_kwargs is None else text_kwargs))
-        text = lambda ax, pos, val: ax.text(pos-(0.33 if text_above else 0),
-                                            ax.get_ylim()[1], float_fmt % val,
-                                            **text_kwargs)
+        text = lambda ax, pos, val, txt_y: ax.annotate(float_fmt % val,
+                                                (pos-(0.33 if text_above else 0), txt_y),
+                                                **text_kwargs)
         xerr, yerr = None, err
 
     axes = data.plot(kind=kind, y=y, color='#d65f5f', width=0.95,
@@ -189,7 +191,8 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
         #elif align=='mid':
         #    datalim = ymin, ymax
 
-        ymax += (ymax - ymin)*0.15
+        txt_y = ymax
+        ymax += (ymax - ymin)*0.25  # Add space for text: blind guess
         if horizontal:
             ax.set_xlim(ymin, ymax)
             if not ticks: ax.set_xticklabels([])
@@ -206,7 +209,7 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
         ax.tick_params(left=False, bottom=False)
         # Add the table content (Once the xlim/ylim is set!)
         for j, val in enumerate(ydata.values):
-            text(ax, j, val)
+            text(ax, j, val, txt_y)
     return axes.flat
 
 

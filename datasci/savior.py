@@ -13,7 +13,7 @@ import base64
 import matplotlib.pyplot as plt
 import pandas as pd
 from pandas.io.formats.style import Styler
-from markdown import markdown
+from markdown import Markdown
 from IPython.display import display_html, display_markdown
 import traceback
 import warnings
@@ -179,7 +179,7 @@ class HtmlReport(Report):
             pre {
               display: inline-block; /* ensures that nested pre lines do not have to much vertical spacing */
               white-space: pre-wrap;
-              width: calc(49vw - 470px);
+              width: max(900px, 80vw);
             }
             pre.log {
               margin-bottom: 0;
@@ -254,6 +254,7 @@ class HtmlReport(Report):
         if not isinstance(postscripts, (list, tuple)):
             raise ValueError('postscripts= argument should be a list/tuple.')
         if metas is None: metas = ['charset="UTF-8"']
+        self._mkd = Markdown(extensions=['fenced_code', 'attr_list', 'tables', 'sane_lists'])  # Use a single instance for the whole report
 
         self.external_content = external_content
         if external_content:
@@ -412,7 +413,7 @@ class HtmlReport(Report):
         if self.printing:
             self.handle.write('</pre>\n')
             self.printing = False
-        self.handle.write('\n'.join(markdown(s) for s in strings) + '\n')
+        self.handle.write('\n'.join(self._mkd.convert(s) for s in strings) + '\n')
     
     def begin(self, tag, class_=None, id_=None, attrs=None, print_off=True):
         """Open an html tag"""

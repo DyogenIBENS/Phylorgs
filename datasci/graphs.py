@@ -789,6 +789,7 @@ def hsvblend(color, color2, fraction=0.5):
     else:
         h = 0.0
         #s = 0.0
+    #FIXME: output negative values in the returned array
     return hsv_to_rgb((h, hsv[1]+hsv2[1], hsv[2]+hsv2[2]))
 
 fade_color_hex = hexify(fade_color)
@@ -881,8 +882,8 @@ def plottree(tree, get_items, get_label, root=None, rootdist=None, ax=None, inve
              zero_weight_children=None, edge_styles=None,
              **kwargs):
              #edge_norm=None
-    """Plot an ete3 tree, from left to right.
-    
+    """Plot a tree, from left to right.
+
     param: edge_colors dict-like object with keys being the nodes, and values ~~a color string~~
             a scalar value mapped to a color using a cmap.
     param: add_edge_axes can be None, "top", or "middle".
@@ -1309,7 +1310,7 @@ def plottree_label_nodes(ax, child_coords, tree, get_items, get_label, root, roo
             #        child = list(child_synonyms)[0]
             #    else:
             if shortlist is not None and child not in shortlist:
-                    continue
+                continue
             if get_items(tree, (child, d)):
                 if child_coords[child].y > child_coords[node].y:
                     offset_y = 1
@@ -1326,6 +1327,35 @@ def plottree_label_nodes(ax, child_coords, tree, get_items, get_label, root, roo
         ax.annotate(get_label(tree, root), child_coords[root],
                     textcoords='offset points', xytext=(offset_x, -1),
                     horizontalalignment=annot_ha,
+                    verticalalignment='top', **label_params)
+
+def plottree_label_branches(ax, child_coords, tree, get_items, get_label, root, rootdist, leftleaves=False, time_dir=-1, shortlist=None, **label_params):
+    offset_x = -time_dir if leftleaves else time_dir
+    for (node, dist), items in rev_dfw_descendants(tree, get_items,
+                                               include_leaves=False,
+                                               queue=[(root, rootdist)]):
+        for child,d in items:
+            if shortlist is not None and child not in shortlist:
+                continue
+            if child_coords[child].y > child_coords[node].y:
+                offset_y = -2  # seems closer to the line than when above it.
+                va = 'top'  # opposite placement than node labels
+            else:
+                offset_y = 1
+                va = 'bottom'
+            x, y = child_coords[child]
+            x = (x + child_coords[node].x) / 2.
+            # TODO: do not annotate crown of collapsed clades.
+            ax.annotate(get_label(tree, child), (x, y),
+                        textcoords='offset points', xytext=(0, offset_y),
+                        horizontalalignment='center',
+                        verticalalignment=va, **label_params)
+    if rootdist>0 and (shortlist is None or root in shortlist):
+        x, y = child_coords[root]
+        x -= (rootdist*timedir) / 2
+        ax.annotate(get_label(tree, root), (x, y),
+                    textcoords='offset points', xytext=(offset_x, 1),
+                    horizontalalignment='center',
                     verticalalignment='top', **label_params)
 
 def plottree_set_xlim(lines, xroot, xleaf=None, age_from_root=False):
