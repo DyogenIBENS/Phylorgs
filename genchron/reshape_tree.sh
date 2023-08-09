@@ -20,7 +20,9 @@ DESCRIPTION:
     prints reshaped newick tree to stdout.
     Reshaping means removing the inner node labels, and removing nodes that
     start from the root and have only one child (codeml fails on such a tree).
-    Needs newicktools installed.
+    Needs newick-utils installed.
+
+    Also see 'dendro/phyltree_nwk_standardize.sh'.
 "
 
 input_tree=${1:-}

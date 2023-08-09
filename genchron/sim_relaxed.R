@@ -2,8 +2,7 @@
 
 library(ape)
 #devtools::install_github('dosreislab/simclock')
-#library(simclock)
-source('~/install/mysimclock/R/simclock.R')  # handles polytomic trees in .sim.gbm
+library(simclock)  # Requires at least version 0.1.4 to handle polytomic trees in .sim.gbm
 library(stringr)
 
 # Do not use.
@@ -127,6 +126,7 @@ argvalues <- parse_args()
 debugging <- argvalues[['-p']]
 
 # Tree with branch lengths in million years.
+#FIXME: use any species tree. The following is available at DOI:10.5281/zenodo.8235767.
 phyltree <- read.tree('PhylTree-Primates.TimeTree201901.Ensembl93-like.goodQual.outgroupsMic-Pco.seqnames.nwk')
 
 # Load the tree without internal labels or set node.labels to NULL
@@ -179,6 +179,9 @@ for (k in seq_along(rates)) {
   rk <- rates[k]
 
   # Insertion-deletion rates
+  #FIXME: 0.00177 substitutions/codon/My was obtained on my 21 Primates tree from Ensembl 93.
+  # By dividing by 'rk' (mean subst rate), we ensure that all simul will generate alignments that
+  # have the same quantities of gaps.
   irate <- (1/14)/3 * 0.00177/rk
   drate <- (2/14)/3 * 0.00177/rk
 

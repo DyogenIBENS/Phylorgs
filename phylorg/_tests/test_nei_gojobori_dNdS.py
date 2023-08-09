@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from seqtools.nei_gojobori_dNdS import *
+from phylorg.nei_gojobori_dNdS import *
 import pytest
 
 
