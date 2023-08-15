@@ -3248,19 +3248,6 @@ class fullRegression(object):
     def latex_feature_summary_tables(self, longnames=None):
         if longnames is None:
             longnames = {}
-        print('\n### LaTeX table of fitted variables', file=self.out)
-        #write(self.reslopes2.to_latex(formatters={'transform': lambda x: '\\texttt{%s}' + x.replace('~', '\\~')}))
-        self.display("\n```latex\n" \
-                     + self.reslopes2.style\
-                        .format_index(escape='latex', axis=0)\
-                        .format(precision=4)\
-                        .applymap(lambda v: ('cellcolor:{Khaki}' if v<0.01 else
-                                        'cellcolor:{LemonChiffon!50}' if v<=0.05 else ''),
-                                         subset=['P>|z|', 'Simple regression p-value'])\
-                        .to_latex() \
-                    + "\n```\n")
-        print('\n### LaTeX table of all variables', file=self.out)
-        # see param_info[['transform', 'decorr']], based on inde_features2 though
 
         pre_removal = []  # features removed prior to the first fit.
         pre_removal += ['hardcoded'] * len(self.features_delete_hardcoded)
@@ -3275,7 +3262,7 @@ class fullRegression(object):
                      + self.features_posttransform_constant \
                      + self.features_postnorm_constant  # after transform & z-score
 
-        feature_decorr = {src: new for new, src in self.decorr_source.items()}
+        feature_decorred_name = {src: new for new, src in self.decorr_source.items()}
         feature_removal = []
         for ft in self.features:
             if ft in self.must_drop_features:
@@ -3283,25 +3270,45 @@ class fullRegression(object):
             elif ft in self.dropped_todecorr:
                 feature_removal.append('decorr denominator')
             else:
-                track = []
-                if ft in feature_decorr:
-                    track.append('decorr')
-                    ft = feature_decorr[ft]  # use the name of the post-decorr var
+                ft = feature_decorred_name.get(ft, ft)  # use the name of the post-decorr var
                 if ft in self.bad_props_counts:
-                    track.append('bad prop')
+                    feature_removal.append('bad prop')
                 elif ft in self.suggest_multicolin2:
-                    track.append('collinearity condition')
+                    feature_removal.append('collinearity condition')
                 elif ft not in self.inde_features2:
-                    track.append('constant after bad prop')
+                    feature_removal.append('constant after bad prop')
                 elif ft not in self.selected_features2:
                     # the feature was not retained by the last LASSO regression.
-                    track.append('Lasso drop')
-
-                feature_removal.append(', '.join(track))
+                    feature_removal.append('Lasso drop')
+                else:
+                    feature_removal.append('')
 
         self.feature_track = pd.DataFrame({'Description': [longnames.get(ft, '') for ft in pre_features+self.features],
                                            'Removal': pre_removal + feature_removal},
                                            index=pre_features+self.features)
+        # see param_info[['transform', 'decorr']], based on inde_features2 though
+        transformed = self.features_posttransform_constant + self.features_postnorm_constant + self.features
+        feature_transform = pd.Series([self.suggested_transform[ft].__name__
+                                       for ft in transformed],
+                                      index=transformed, name='transform')
+        feature_decorr = pd.DataFrame.from_records(
+                                   [[src, ' '.join(self.decorred[new]), new]
+                                    for new,src in self.decorr_source.items()],
+                                   index='feature', columns=['feature', 'decorrelation', 'decorred_name'])
+        self.feature_transform_decorr = pd.concat((feature_transform, feature_decorr), axis=1).fillna('')
+
+        print('\n### LaTeX table of fitted variables', file=self.out)
+        self.display("\n```latex\n" \
+                     + self.reslopes2.style\
+                        .format_index(escape='latex', axis=0)\
+                        .format(precision=4)\
+                        .applymap(lambda v: ('cellcolor:{Khaki}' if v<0.01 else
+                                        'cellcolor:{LemonChiffon!50}' if v<=0.05 else ''),
+                                         subset=['P>|z|', 'Simple regression p-value'])\
+                        .to_latex() \
+                    + "\n```\n")
+
+        print('\n### LaTeX table of all variables', file=self.out)
         pandas_max_rows = pd.get_option('display.max_rows')
         pd.set_option('display.max_rows', None)
         self.display_html(self.feature_track)
@@ -3309,9 +3316,14 @@ class fullRegression(object):
         self.display("\n```latex\n" \
             + self.feature_track.style.format_index(escape='latex', axis=0).to_latex(environment='longtable') + "\n```\n")
 
-
-
-
+        # Escape special characters for LaTeX:
+        latex_escape = str.maketrans({'%': '\\%', '\\': '\\\\', '_': '\\_', '~': '$\\sim$'})
+        print('### LaTeX table of variable transforms and decorrelations', file=self.out)
+        self.display("\n```latex\n" \
+            + self.feature_transform_decorr.style\
+                .format_index(escape='latex', axis=0)\
+                .format(lambda txt: txt.translate(latex_escape))\
+                .to_latex() + "\n```\n")
 
 
 def refdecorr(a, b, v, cv):
@@ -4224,7 +4236,7 @@ class regressAncs(object):
                 try:
                     with reroute_loggers(
                             HtmlReport(reportfile,
-                                       css=[myslideshow_css], scripts=[myslideshow_js]),
+                                       css=[myslideshow_css], scripts_embedded=[myslideshow_js]),
                             loggers) as hr:
 
                         # Add a header information with link to previous/next file

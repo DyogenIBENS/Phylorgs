@@ -93,6 +93,16 @@ def format_fig_extern(fig, filename, bare=False, **kwargs):
 #  - `_repr_svg_`: return raw SVG data as a string, or a tuple (see below).
 #  - `_repr_latex_`: return LaTeX commands in a string surrounded by "$",
 #                    or a tuple (see below).
+#
+
+def files_read_lines(filenames):
+    #TODO: when reading a javascript or css file, remove comments.
+    lines = []
+    for filename in filenames:
+        with open(filename) as f:
+            lines.extend(line.rstrip() for line in f)
+    return lines
+
 
 from abc import ABC, abstractmethod
 
@@ -100,10 +110,10 @@ class Report(ABC):
     """Base class for HtmlReport and CellReport. Do not instantiate directly."""
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_value, tb):
         logger.debug('Exited context: %r %r %r', exc_type, exc_value, tb)
-    
+
     @abstractmethod
     def raw(self, txt):
         """Write raw string"""
@@ -113,7 +123,7 @@ class Report(ABC):
     @abstractmethod
     def write(self, txt):
         """Write string. Implement it so that it can be used by print calls."""
-    
+
     @abstractmethod
     def pprint(self, *args):
         """pretty print"""
@@ -122,7 +132,7 @@ class Report(ABC):
     def show(self, fig=None, **kwargs):
         """Show figure"""
         #return plt.gcf() if fig is None else fig
-    
+
     @abstractmethod
     def html(self, obj):
         """Write the html representation of an object"""
@@ -167,7 +177,7 @@ color: #E5E5E5;
 # see /static/style/style.min.css?v=29c09309dd70e7fe93378815e5f022ae
 # or /Users/grant/Sites/jupyter/notebook/notebook/static/notebook/less/renderedhtml.less
 class HtmlReport(Report):
-    
+
     @classmethod
     def get_default_styles(cls):
         default_styles = ['''
@@ -238,21 +248,24 @@ class HtmlReport(Report):
         return default_styles
 
     def __init__(self, filename=None, mode='w', figformat='png', title=None,
-                 css=None, scripts=None, mathjax=True, style=None, metas=None,
-                 postscripts=None, external_content=False):
+                 css=None, scripts=None, scripts_embedded=None,
+                 mathjax=True, style=None, metas=None,
+                 postscripts=None, postscripts_embedded=None, external_content=False):
         self.filename = filename
         self.mode = mode
         self.figformat = figformat
         self.printing = False  # Whether a <pre> is already opened
         if css is None: css = []
-        if not isinstance(css, (list, tuple)):
-            raise ValueError('css= argument should be a list/tuple.')
         if scripts is None: scripts = []
-        if not isinstance(scripts, (list, tuple)):
-            raise ValueError('scripts= argument should be a list/tuple.')
+        if scripts_embedded is None: scripts_embedded = []
         if postscripts is None: postscripts = []
-        if not isinstance(postscripts, (list, tuple)):
-            raise ValueError('postscripts= argument should be a list/tuple.')
+        if postscripts_embedded is None: postscripts_embedded = []
+        for argname, arg in [('css', css), ('scripts', scripts),
+                             ('scripts_embedded', scripts_embedded),
+                             ('postscripts', postscripts),
+                             ('postscripts_embedded', postscripts_embedded)]:
+            if not isinstance(arg, (list, tuple)):
+                raise ValueError(argname+' argument should be a list/tuple.')
         if metas is None: metas = ['charset="UTF-8"']
         self._mkd = Markdown(extensions=['fenced_code', 'attr_list', 'tables', 'sane_lists'])  # Use a single instance for the whole report
 
@@ -292,14 +305,15 @@ class HtmlReport(Report):
             ['<link rel="stylesheet" type="text/css" href="%s" />' % c for c in css] +
             (['<script type="text/javascript" async src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/latest.js?config=TeX-MML-AM_CHTML"></script>'] if mathjax else []) +
             ['<script type="text/javascript" src="%s" async></script>' % s for s in scripts] +
+            (['<script type="text/javascript">', *files_read_lines(scripts_embedded), '</script>'] if scripts_embedded else []) +
             ['<style>\n%s\n</style>' % '\n'.join(styles),
             '</head>',
             '<body>\n'])
-        self.foot = '\n'.join(['\n<br /><br /><br /><br />'] +
-                              ['<script type="text/javascript" src="%s"></script>' % s
+        self.foot = '\n'.join(['<script type="text/javascript" src="%s"></script>' % s
                                for s in postscripts] +
-                              ['<footer><p>Generated: {date}</p></footer>',
-                               '</body>', '</html>\n'])
+                              (['<script>', *files_read_lines(postscripts_embedded), '</script>']
+                               if postscripts_embedded else []) +
+                              ['</body>', '</html>\n'])
         self.closed = True
         self.begun = []  # opened html tags inside body.
 
@@ -323,7 +337,7 @@ class HtmlReport(Report):
         logger.debug('Opened %s(filename=%r, mode=%r) -> closed=%s, handle=%r',
                      self.__class__.__name__, self.filename, mode, self.closed,
                      self.handle)
-    
+
     def close(self):
         logger.debug('Closing </body>, then file handle.')
         self.loghandler.close()
@@ -334,7 +348,8 @@ class HtmlReport(Report):
             except AttributeError:
                 # Some stored loggers have class PlaceHolder.
                 pass
-        self.handle.write(self.foot.format(date=dt.now().strftime('%Y/%m/%d %H:%M:%S')))
+        footer_date = '\n<br /><br /><br /><br />\n<footer><p>Generated: %Y/%m/%d %H:%M:%S</p></footer>' 
+        self.handle.write(dt.now().strftime(footer_date) + self.foot)
         if self.filename is None:
             display_html(self.handle.getvalue(), raw=True)
         self.handle.close()
@@ -349,7 +364,7 @@ class HtmlReport(Report):
             logger.debug('W %d bytes (head)', self.handle.write(self.head))
         logger.debug('Entered.')
         return self
-    
+
     def __exit__(self, exc_type, exc_value, tb):
         if self.printing:
             self.handle.write('</pre>\n')
@@ -366,7 +381,7 @@ class HtmlReport(Report):
 
         self.close()
         super().__exit__(exc_type, exc_value, tb)
-    
+
     def raw(self, txt):
         """Write raw string to file (should be valid Html)."""
         #logger.debug('W %d bytes (body)', )
@@ -399,7 +414,7 @@ class HtmlReport(Report):
                 raise RuntimeError('No current figure!')
             fig = plt.gcf()
         self.handle.write(self.format_fig(fig, self.figformat, **kwargs))
-    
+
     def html(self, obj):
         if self.printing:
             self.handle.write('</pre>\n')
@@ -408,22 +423,22 @@ class HtmlReport(Report):
         if obj_html is None:
             raise ValueError('method _repr_html_() returned None.')
         self.handle.write(obj_html + '\n')
-    
+
     def mkd(self, *strings):
         if self.printing:
             self.handle.write('</pre>\n')
             self.printing = False
         self.handle.write('\n'.join(self._mkd.convert(s) for s in strings) + '\n')
-    
+
     def begin(self, tag, class_=None, id_=None, attrs=None, print_off=True):
         """Open an html tag"""
         if print_off and self.printing:
             self.handle.write('</pre>\n')
             self.printing = False
         tagstr = tag
-        if class_: 
+        if class_:
             tagstr += (' class="%s"' % class_)
-        if id_: 
+        if id_:
             tagstr += (' id="%s"' % id_)
         if attrs:
             tagstr += ' ' + ' '.join('%s="%s"' %(k,v) for k,v in attrs.items())
@@ -470,7 +485,7 @@ class HtmlReport(Report):
             begun_class = 'column%2d' % p
         self.end('div', begun_class)
         self.handle.write('<!-- end %s -->\n' % begun_class)
-    
+
     def end_columns(self):
         self.end('div', 'columns')
         self.handle.write('<!-- end columns -->\n<br />\n')
@@ -481,7 +496,7 @@ class HtmlReport(Report):
         self.column(p)
         yield
         self.end_column(p)
-    
+
     @contextmanager
     def cols(self):
         self.columns()
@@ -492,7 +507,7 @@ class HtmlReport(Report):
 class CellReport(Report):
     #def __init__(self):
     #    pass
-    
+
     def __enter__(self):
         self.loghandler = logging.StreamHandler(sys.stdout)
         self.loghandler.setFormatter(ColoredFormatter(fmt=BASIC_FORMAT))
@@ -564,7 +579,7 @@ class DoubleReport(HtmlReport, CellReport):
         """Show figure"""
         HtmlReport.show(self, fig, **kwargs)
         CellReport.show(self, fig, **kwargs)
-    
+
     def html(self, obj):
         HtmlReport.html(self, obj)
         CellReport.html(self, obj)
