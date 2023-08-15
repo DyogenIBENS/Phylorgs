@@ -1,7 +1,7 @@
 Phylorgs
 ========
 
-Copyright © Guillaume Louvel 2016-2020
+Copyright © Guillaume Louvel 2016-2023
 
 
 Suite of tools for genomics & phylogeny, implemented during my PhD.
@@ -9,7 +9,7 @@ Suite of tools for genomics & phylogeny, implemented during my PhD.
 
 Related publication:
 
-* Factors influencing the accuracy in dating single gene trees,
+* Factors influencing the accuracy and precision in dating single gene trees,
   Guillaume Louvel, Hugues Roest Crollius.
   bioRxiv 2020.08.24.264671 (preprint); doi: <https://doi.org/10.1101/2020.08.24.264671>
 
