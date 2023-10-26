@@ -108,15 +108,22 @@ def make_best_logtransform(var, quantile=0.05):
     return current_logtransform(inc)
 
 
-def discretizer(bins=[0]):
+def discretizer(bins=[0], right=True):
     """"""
     def discretize(x):
-        return np.digitize(x, bins, right=True)
+        return np.digitize(x, bins, right=right)
+    if len(bins) == 1:
+        discretize.__name__ = 'binarize_%g' % bins[0]
     return discretize
 
 
 def binarize(x):
     return np.digitize(x, [0], right=True)
+
+binarize0 = binarize
+
+def binarize1(x):
+    return np.digitize(x, [1], right=False)
 
 
 def zscore(x, ddof=1):
@@ -672,10 +679,23 @@ def display_decorrelate(decorr_item, data_raw, data_transformed, data_decorred,
     else:
         #cnorm = mpl.colors.Normalize(data_raw[color_var].min(), data_raw[color_var].max())
         # No, different data have different transforms.
+        color_values = data_raw[color_var]
+        ncolors = len(data_raw[color_var].unique())
+        if np.issubdtype(data_raw[color_var].dtype, np.integer) and ncolors<=10:
+            if ncolors == 2:
+                cmap = 'PRGn_r'
+            else:
+                cmap = plt.get_cmap('tab10', len(data_raw[color_var].unique()))
+        else:
+            cmap = 'viridis'
         def scatter(corrvar, yvar, data, ax):
-            data_s = data.sort_values(color_var)  # for plotting order same as value
+            try:
+                data_s = data.sort_values(color_var)  # for plotting order same as value
+            except TypeError as err:
+                err.args = (err.args[0] + " in %r" % color_var,)
+                raise
             return ax.scatter(corrvar, yvar, data=data_s, c=color_var, alpha=alpha,
-                              label=None)
+                              label=None, cmap=cmap)
     k, (var, corrvar) = decorr_item
     fig, axes = plt.subplots(ncols=3)
     for ax, data, desc in zip(axes, (data_raw, data_transformed, data_decorred),
@@ -699,10 +719,21 @@ def display_decorrelate(decorr_item, data_raw, data_transformed, data_decorred,
         else:
             yvar = var
         points = scatter(corrvar, yvar, data, ax)
+        ax.set_title(desc)
+        ax.set_xlabel(corrvar)
+        ax.set_ylabel(yvar)
+        if color_var is not None:
+            fig.colorbar(points, ax=ax, orientation='horizontal', fraction=0.05).set_label(color_var) #aspect=30
+
         if (data[[yvar, corrvar]].isna().any(axis=None) or
                 np.isinf(data[[yvar, corrvar]]).any(axis=None)):
-            logger.error('NaN or Inf in %s [%s, %s]', desc, yvar, corrvar)
+            n_NaNs = data[[yvar, corrvar]].isna().sum().values
+            n_Infs = np.isinf(data[[yvar, corrvar]]).sum().values
+            logger.error('NaN: %s, Inf: %s in %s [%s, %s]', n_NaNs, n_Infs, desc, yvar, corrvar)
             data = data.loc[np.isfinite(data[[yvar, corrvar]]).all(axis=1)]
+            if not data.shape[0]:
+                logger.error('ZERO valid rows in %s [%s, %s]!', desc, yvar, corrvar)
+                continue
 
         fit = sm.OLS(data[yvar], sm.add_constant(data[corrvar])).fit()
         if desc=='raw':
@@ -722,11 +753,6 @@ def display_decorrelate(decorr_item, data_raw, data_transformed, data_decorred,
         ax.plot(x, a + b*x, '--', alpha=alpha,
                 label='a=%g b=%g\nR²=%g P-v=%g' % (a, b, r2, pval))
         ax.legend()
-        ax.set_title(desc)
-        ax.set_xlabel(corrvar)
-        ax.set_ylabel(yvar)
-        if color_var is not None:
-            fig.colorbar(points, ax=ax, orientation='horizontal', fraction=0.05).set_label(color_var) #aspect=30
     #fig.tight_layout()  # tight layout often goes havoc with colorbars.
     return fig
 

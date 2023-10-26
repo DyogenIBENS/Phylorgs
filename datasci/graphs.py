@@ -570,7 +570,9 @@ def heatmap_cov(ft_cov, features=None, cmap='seismic', make_corr=False,
     ##width2 = width*ratio - float(pad)/w
     #ax_ddg = fig.add_axes([x0, y0, w*dendro_ratio, h], frameon=False,
     #                      sharey=ax)
-    ax_ddg.get_shared_y_axes().join(ax)
+    # share y axis should not be done, because dendrogram leaves are spaced every 10 units.
+    #ax_ddg.sharey(ax)  # Matplotlib >= 3.3
+
     #ax_cb.get_shared_x_axes().join(ax)
     ax_ddg.set_title("hierarchical clustering (euclidean)")
     ax_ddg.axis('off')

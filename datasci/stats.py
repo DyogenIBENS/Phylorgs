@@ -9,6 +9,7 @@ from functools import partial
 import numpy as np
 import scipy.stats as stats
 import matplotlib.pyplot as plt
+import statsmodels.api as sm
 import logging
 logger = logging.getLogger(__name__)
 
@@ -211,44 +212,55 @@ def partial_r_squared(fit, feature):
     fitter = type(fit.model)
     #reduced_features = [ft for ft in fit.exog_names if ft != feature]
     #feature_i = fit.exog_names.index(feature)
+    fit_params = dict(cov_type=fit.cov_type)
+    if type(fit.model).__name__ == 'Logit':
+        fit_params['method'] = 'bfgs'  # avoid invertibility problems when computing Hessian
     reduced_fit = fitter(fit.model.data.orig_endog,
                          fit.model.data.orig_exog.drop(feature, axis=1)
-                        ).fit(cov_type=fit.cov_type)
-    reduced_R2 = reduced_fit.rsquared
-    return (reduced_R2 - fit.rsquared) / reduced_R2
+                        ).fit(**fit_params)
+    try:
+        reduced_R2 = reduced_fit.rsquared
+        R2 = fit.rsquared
+    except AttributeError:
+        reduced_R2 = reduced_fit.prsquared
+        R2 = fit.prsquared
+    return (reduced_R2 - R2) / reduced_R2
 
 
 def partial_r_squared_fromreduced(fit, somefeatures):
     fitter = type(fit.model)
+    fit_params = dict(cov_type=fit.cov_type)
+    if type(fit.model).__name__ == 'Logit':
+        fit_params['method'] = 'bfgs'  # avoid invertibility problems when computing Hessian
     reduced_fit = fitter(fit.model.data.orig_endog,
                          fit.model.data.orig_exog[somefeatures]
-                        ).fit(cov_type=fit.cov_type)
-    reduced_R2 = reduced_fit.rsquared
-    return (reduced_R2 - fit.rsquared) / reduced_R2
-
+                        ).fit(**fit_params)
+    try:
+        reduced_R2 = reduced_fit.rsquared
+        R2 = fit.rsquared
+    except AttributeError:
+        reduced_R2 = reduced_fit.prsquared
+        R2 = fit.prsquared
+    return (reduced_R2 - R2) / reduced_R2
 
 
 def VIF(fit, feature):
-    fitter = type(fit.model)
     #reduced_features = [ft for ft in fit.exog_names if ft != feature]
     #feature_i = fit.exog_names.index(feature)
-    xi_fit = fitter(fit.model.data.orig_exog[feature],
-                         fit.model.data.orig_exog.drop(feature, axis=1)
-                        ).fit(cov_type=fit.cov_type)
+    xi_fit = sm.OLS(fit.model.data.orig_exog[feature],
+                    fit.model.data.orig_exog.drop(feature, axis=1)
+                   ).fit(cov_type=fit.cov_type)
     return 1. / (1. - xi_fit.rsquared)
 
 
 def VIFs(fit):
-    fitter = type(fit.model)
-    
-    x_fits = [fitter(fit.model.data.orig_exog[feature],
+    x_fits = [sm.OLS(fit.model.data.orig_exog[feature],
                      fit.model.data.orig_exog.drop(feature, axis=1)
                     ).fit(cov_type=fit.cov_type)
               for feature in fit.model.exog_names]
     return pd.Series([1. / (1. - xf.rsquared) for xf in xfits],
                      index=fit.model.exog_names,
                      name='VIFs')
-
 
 
 #def multicol_condition_number(X):
@@ -260,6 +272,9 @@ def multicol_test(X):
     norm_xtx = np.dot(X.T, X)
     eigs = np.linalg.eigvals(norm_xtx)
     emax, emin = eigs.max(), eigs.min()
+    if emin<=0 and np.isclose(emin, 0):
+        # emin cannot be < 0, so this is probably a floating point error, and emin = 0
+        return np.Inf
     if not np.isfinite(emax) or not np.isfinite(emin) or emax/emin<0:
         logger.warning('Invalid max(eigs), min(eigs) = %s, %s', emax, emin)
     #condition_number

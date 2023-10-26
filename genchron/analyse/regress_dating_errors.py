@@ -2000,15 +2000,27 @@ def zscore_dataframe(df, ref_zscore=None):
 
 
 def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
-                          alpha=0.01, L1_wt=1, cov_type='HC1', out=None, **psummary_kw):
+                          alpha=0.01, L1_wt=1, cov_type='HC1', model=sm.OLS,
+                          maxiter=50, out=None, **psummary_kw):
     exog = sm.add_constant(a[features])
     if 'const' not in exog:
         logger.warning('No constant added to `exog`: some features are already constant')
-    ols = sm.OLS(a[y], exog)
-    fitlasso = ols.fit_regularized(method=method,
-                                   alpha=alpha,
-                                   L1_wt=L1_wt,  # lasso)
-                                   start_params=None)
+    regul_params = dict(method=method, alpha=alpha, start_params=None)
+    if model.__name__ == 'OLS':
+        regul_params.update(L1_wt=L1_wt)
+        fit_params = dict(cov_type=cov_type)
+    elif model.__name__ == 'Logit':
+        fit_params = dict(method='bfgs', warn_convergence=True, maxiter=maxiter)
+        # BFGS does not inverse the Hessian, so it will not fail if the matrix is singular.
+        regul_params['maxiter'] = maxiter
+        if np.isscalar(alpha):
+            # The doc of Logit suggests that scalar alpha will not penalize anything.
+            regul_params['alpha'] = np.full(len(features)+1, alpha)
+    # NOTE:
+    # valid methods for sm.Logit are 'l1' and 'l1_cvxopt_cp'
+
+    modelled = model(a[y], exog)
+    fitlasso = modelled.fit_regularized(**regul_params)
     if method=='sqrt_lasso':
         alpha = 1.1 * np.sqrt(exog.shape[0]) * stats.norm.ppf(1 - 0.05 / (2*exog.shape[1]))
     print('Regularized fit: %s alpha=%g L1_wt=%g' % (method, alpha, L1_wt), file=out)
@@ -2050,27 +2062,28 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
     #scatter_density('ingroup_glob_len', y, data=a, alpha=0.5);
     #sb.violinplot('triplet_zeros_dS', 'abs_age_dev', data=a);
 
-    print('\n#### OLS refit of Lasso-selected variables (%g)' % atol, file=out)
+    print('\n#### %s refit of Lasso-selected variables (%g)' % (model.__name__, atol), file=out)
     #TODO: delete but make a refit.
     selected_features = sorted_coefs[sorted_coefs > atol].index.tolist()
     print('Removed variables:', ', '.join(sorted_coefs[sorted_coefs <= atol].index), file=out)
-    fit = sm.OLS(a[y], exog[['const'] + selected_features]).fit(cov_type='HC1')
+    fit = model(a[y], exog[['const'] + selected_features]).fit(**fit_params)
 
     bars_to_show = ['coef', 'Lasso coef', 'Simple regression coef']
     bars_to_show += psummary_kw.pop('bars', [])
     bars_mid_to_show = ['VIFs'] + psummary_kw.pop('bars_mid', [])
     info_to_join = psummary_kw.pop('join', None)
-    simple_regressions =  [sm.OLS(a[y], sm.add_constant(a[features])[['const']]).fit()]
-    simple_regressions += [sm.OLS(a[y], sm.add_constant(a[ft])).fit()
+    simple_regressions =  [model(a[y], sm.add_constant(a[features])[['const']]).fit(**fit_params)]
+    simple_regressions += [model(a[y], sm.add_constant(a[ft])).fit(**fit_params)
                            for ft in features]
     partial_r2s = leave1out_eval(['const']+selected_features,
                                  partial(partial_r_squared_fromreduced, fit))
     #vifs = [smo.variance_inflation_factor(a[['const']+selected_features], i)
     vifs = [VIF(fit, ft) for i,ft in enumerate(['const']+selected_features)]
+    r2_attr = 'prsquared' if model.__name__ == 'Logit' else 'rsquared'
     param_info = pd.concat((
                     pslopes.data.coef.rename('Lasso coef'),
                     pd.DataFrame([(reg.params.loc[ft],
-                                   reg.rsquared,
+                                   getattr(reg, r2_attr),
                                    reg.pvalues[ft],
                                    *reg.conf_int().loc[ft])
                                   for ft, reg in zip(['const'] + features,
@@ -2310,8 +2323,8 @@ class fullRegression(object):
                 features.remove(ft)
         
         # All binary variables should **NOT** be z-scored!
-        self.bin_features = bin_features = [ft for ft in features
-                            if (suggested_transform[ft].__name__ == 'binarize' or
+        self.bin_features = bin_features = [ft for ft in responses+features
+                            if (suggested_transform[ft].__name__.startswith('binarize') or
                                 np.issubdtype(alls[ft].dtype, bool))]
         zscored_features = [ft for ft in responses+features if ft not in bin_features]
 
@@ -2333,6 +2346,13 @@ class fullRegression(object):
                      [ft for ft in responses+features if ft not in bin_features])
             #{ft: zscore for ft in responses+features if ft not in bin_features})
         logger.debug('Will join binary features: %s', bin_features)
+        bin_responses = set(responses).intersection(bin_features)
+        if bin_responses:
+            # Special case: it is not desirable to standardize binary response variable,
+            # for example the Logit regression requires all values to be 0 or 1.
+            logger.info('Binary responses will NOT be standardized (divided by stddev): %s',
+                        ','.join(bin_responses))
+
         # This deep shit of .transform() is creating a RecursionError.
         # Also tried: zscore(df) but specifically fails on a_t.
         # Also tried .apply(zscore, raw=True, result_type='broadcast')
@@ -2344,8 +2364,13 @@ class fullRegression(object):
             ref_rescale = a_t
 
         if rescale:
+            if bin_responses:
+                for ft in bin_responses:
+                    bin_features.remove(ft)
             a_n = zscore_dataframe(a_t[zscored_features], ref_rescale[zscored_features])\
-                 .join(standardize_dataframe(a_t[bin_features], ref_rescale[bin_features]))
+                 .join(standardize_dataframe(a_t[bin_features], ref_rescale[bin_features]))\
+                 .join(a_t[list(bin_responses)].copy())
+
         else:
             a_n = a_t[zscored_features+bin_features].copy()
 
@@ -2484,11 +2509,11 @@ class fullRegression(object):
 
         # Check if the proposed decorrelation is in line with the transforms.
         # (subtract for logs, divide for raw/sqrt)
-        to_divide_items = list(to_decorr[renorm_decorrelate].items()) + \
-                                list(to_decorr[decorrelate].items())
+        to_divide_items = list(to_decorr.get(renorm_decorrelate, {}).items()) + \
+                                list(to_decorr.get(decorrelate, {}).items())
         # reversed() because popping from list.
         for func in (renorm_decorrelatelogs, decorrelatelogs):
-            for k, (var, corrvar) in reversed(list(to_decorr[func].items())):
+            for k, (var, corrvar) in reversed(list(to_decorr.get(func, {}).items())):
                 msg = []
                 var_transform = suggested_transform[var].__name__
                 corrvar_transform = suggested_transform[corrvar].__name__
@@ -2499,8 +2524,11 @@ class fullRegression(object):
                 if msg:
                     logger.warning(' '.join(msg) + ': automatic switch from "decorrelatelogs" (subtract) to "decorr" (divide).')
                     dest_func = decorrelate if decorr_names[func] == 'decorrelate' else renorm_decorrelate
-                    to_decorr[dest_func].additem(k,
-                                to_decorr[func].pop(k))
+                    try:
+                        to_decorr[dest_func].additem(k, to_decorr[func].pop(k))
+                    except KeyError:
+                        to_decorr[dest_func] = Args()
+                        to_decorr[dest_func].additem(k, to_decorr[func].pop(k))
 
         # Conversely, if dividing is on the log, ask confirmation.
         # But NO auto-switch, because sometimes dividing by the log-scaled var makes sense.
@@ -2628,8 +2656,11 @@ class fullRegression(object):
         self.decorr_source = {key: (key[1:] if len(tup)==2 else tup[0])
                               for key, tup in self.decorred.items()}
 
-        self.a_decorred = a_n_inde[list(self.decorred)].copy()  # Used in self.predict()
-        self.decorred_stats = a_n_inde[list(self.decorred)].agg(['mean', 'std'])
+        if self.decorred:
+            self.a_decorred = a_n_inde[list(self.decorred)].copy()  # Used in self.predict()
+            self.decorred_stats = a_n_inde[list(self.decorred)].agg(['mean', 'std'])
+        else:
+            self.a_decorred, self.decorred_stats = {}, {}
 
         if rescale:
             self.a_n_inde = a_n_inde.assign(
@@ -2822,14 +2853,17 @@ class fullRegression(object):
             bad_props_ttests['P_over'] = bad_props_ttests.apply(lambda row:
                                         (1 - row['P']/2 if row['T']<=0 else row['P']/2),
                                         axis=1)
-            bad_props_ttests['Pcorr'] = smm.multipletests(
-                                            bad_props_ttests['P_over'],
-                                            alpha=0.05,
-                                            method='fdr_bh')[1] # Benjamini/Hochberg
-            # Even with *some* NaN p-values, the added column should not be all NaN:
-            if bad_props_ttests.Pcorr.isna().all():
-                logger.error('Pcorr are all NaNs. There were %d input NaN pvalues (%s)',
-                             na_ttests.sum(), bad_props_ttests.index[na_ttests])
+            if bad_props_ttests.shape[0]:
+                bad_props_ttests['Pcorr'] = smm.multipletests(
+                                                bad_props_ttests['P_over'],
+                                                alpha=0.05,
+                                                method='fdr_bh')[1] # Benjamini/Hochberg
+                # Even with *some* NaN p-values, the added column should not be all NaN:
+                if bad_props_ttests.Pcorr.isna().all():
+                    logger.error('Pcorr are all NaNs. There were %d input NaN pvalues (%s)',
+                                 na_ttests.sum(), bad_props_ttests.index[na_ttests])
+            else:
+                bad_props_ttests['Pcorr'] = np.NaN
             # Add last row being the pooled features T-test.
             self.bad_props_ttests = pd.concat((bad_props_ttests,
                                         pd.DataFrame([tt_bad], columns=['T', 'P'], index=['ANY']))
@@ -2863,14 +2897,20 @@ class fullRegression(object):
         # Removing bad data probably shifted Y. We need to re-center and standardize.
         self.continuous_inde_features2 = []
         self.bin_inde_features2 = []
-        for ft in (self.responses+self.inde_features2):
-            if self.suggested_transform[self.decorr_source.get(ft, ft)].__name__ == 'binarize':
+        self.bin_responses2 = []
+        for ft in self.inde_features2:
+            if self.suggested_transform[self.decorr_source.get(ft, ft)].__name__.startswith('binarize'):
                 self.bin_inde_features2.append(ft)
+            else:
+                self.continuous_inde_features2.append(ft)
+        for ft in self.responses:
+            if self.suggested_transform[self.decorr_source.get(ft, ft)].__name__.startswith('binarize'):
+                self.bin_responses2.append(ft)
             else:
                 self.continuous_inde_features2.append(ft)
 
         if rescale:
-            self.a_n_inde2 = a_n_inde2.assign(
+            self.a_n_inde2 = a_n_inde2[self.bin_responses2].assign(
                 **dict(
                     zscore_dataframe(a_n_inde2[self.continuous_inde_features2], ref_rescale)  #.apply(zscore, raw=True, result_type='broadcast')
                     ),
@@ -2907,7 +2947,7 @@ class fullRegression(object):
                         self.a_t.reindex(a_n_inde2.index)[inde_features2_source]\
                                 .agg(['mean', 'std'])\
                                 .rename(lambda c: 'transformed '+c).T\
-                                .set_axis(inde_features2, inplace=False),
+                                .set_axis(inde_features2, axis=0),
                         pd.Series({ft: ' '.join(self.decorred.get(ft, ()))
                                    for ft in inde_features2}, name='decorr')
                         ),
@@ -2918,7 +2958,8 @@ class fullRegression(object):
 
         logger.debug('regul_kw = %s', self.regul_kw)
         fitlasso2, refitlasso2, slopes2_styled, reslopes2_styled = \
-                lassoselect_and_refit(a_n_inde2, y, inde_features2, join=param_info, out=self.out, **self.regul_kw)
+                lassoselect_and_refit(a_n_inde2, y, inde_features2, join=param_info, out=self.out,
+                                      **self.regul_kw)
         self.displayed.extend((slopes2_styled, reslopes2_styled))
         self.fitlasso2 = fitlasso2
         self.refitlasso2 = refitlasso2
@@ -2928,19 +2969,28 @@ class fullRegression(object):
         self.slopes2 = slopes2_styled.data
         reslopes2 = self.reslopes2 = self.reslopes2_styled.data
         self.selected_features2 = reslopes2.drop('const').index.tolist()
-        self.F_pval2 = refitlasso2.f_pvalue
+        self.F_pval2 = getattr(refitlasso2, 'f_pvalue', None)  # no such attribute for LogitResults
         self.lL2 = refitlasso2.llf
         #print('fstat = %g\nP(F > fstat) = %g\nlog-likelihood = %g' %(
         #        refitlasso2.fvalue, self.F_pval2, self.lL2), file=self.out)
 
         # Plot Y~X with each coef (the 15 largest).
+        if self.suggested_transform[y].__name__.startswith('binarize') or \
+                np.issubdtype(a_n_inde2[y].dtype, bool):
+            def responseplot(x, y, ax=None):
+                return sb.violinplot(a_n_inde2, x=x, y=y, inner='stick', orient='h', ax=ax, color='.7')
+        else:
+            def responseplot(x, y, ax=None):
+                return scatter_density(a_n_inde2[x], a_n_inde2[y], alpha=0.4, ax=ax)
+
         fit_figs = []
         iter_coeffs = range(1, min(16, len(self.reslopes2.index)))
         if self.widget is not None:
             iter_coeffs = self.widget(iter_coeffs)
         for coef_i in iter_coeffs:
             fig, ax = plt.subplots(num=777, clear=True) # If plt.show go crazy, this reuses the previous fig
-            scatter_density(a_n_inde2[self.slopes2.index[coef_i]], a_n_inde2[y], alpha=0.4, ax=ax)
+            responseplot(self.slopes2.index[coef_i], y, ax=ax)
+            ax.autoscale(False)  # Let's stay focused on the data limits, do not adjust Y axis because of regression lines.
             x = np.array(ax.get_xlim())
             a, b = reslopes2.loc[['const', self.slopes2.index[coef_i]], 'Simple regression coef']
             ax.plot(x, 0 + b*x, '--', label='Simple Regression line (a=%g b=%g)' % (0,b))
@@ -2970,7 +3020,11 @@ class fullRegression(object):
         ax.set_ylabel('Residual error')
         ax.set_xlabel('Predicted response')
 
-        smg.gofplots.qqplot(refitlasso2.resid, line='r', ax=axes[1])
+        try:
+            residuals = refitlasso2.resid  # OLS fit
+        except AttributeError:
+            residuals = refitlasso2.resid_response  # Logit fit
+        smg.gofplots.qqplot(residuals, line='r', ax=axes[1])
         self.displayed.append(fig)
         self.show(fig); plt.close()
 
@@ -3033,8 +3087,9 @@ class fullRegression(object):
 
         coef_err = coefs[['[0.025', '0.975]']].subtract(coefs.coef, axis=0).abs().values.T
         nan_err = np.full(coef_err.shape, np.NaN)
+        barcolors = ['#d65f5fff' if p<=signif_levels[0] else '#d65f5f88' for p in coefs['P>|z|'].values]
 
-        axes = matplotlib_stylebar(coefs.rename(renames), fig_columns,
+        axes = matplotlib_stylebar(coefs.rename(renames), fig_columns, barcolors,
                                    err=np.array([coef_err]+[nan_err]*(ncols-1)),
                                    float_fmt='% .4f')
         #ax0_xmax = axes[0].texts[0].get_window_extent().x1  # In figure pixels? Requires a renderer.
@@ -3632,6 +3687,7 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False, nfeatur
     reg_approx.logger = logger
     reg_approx.widget = slideshow_generator(hr)
     reg_approx.set_output()
+    model = reg_approx.model  # the regression model, usually StatsModel's OLS.
 
     reg_approx.predict_extreme_values()
 
@@ -3767,7 +3823,7 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False, nfeatur
             logger.warning('%d NaN rows in reg0t data[[%r, %r]]',
                            regdata.isna().any(axis=1).sum(), yvar, xvar)
             regdata = regdata.dropna()
-        reg0t = sm.OLS(regdata[yvar],
+        reg0t = model(regdata[yvar],
                       sm.add_constant(regdata[xvar])).fit()
         a, b = reg0t.params.loc['const'], reg0t.params.loc[xvar]
         ax.plot(x, a + b*x, '--', label='training: %.5f + %.5f * x' % (a, b))
@@ -3780,7 +3836,7 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False, nfeatur
             logger.warning('%d Inf rows in reg0 data[[%r, %r]]',
                            (~np.isfinite(regdata)).any(axis=1).sum(), yvar, xvar)
             regdata = regdata[np.isfinite(regdata).all(axis=1)]
-        reg0 = sm.OLS(regdata[yvar], sm.add_constant(regdata[xvar])).fit()
+        reg0 = model(regdata[yvar], sm.add_constant(regdata[xvar])).fit()
         a, b = reg0.params.loc['const'], reg0.params.loc[xvar]
         ax.plot(x, a + b*x, '--', label='complete: %.5f + %.5f * x' % (a, b))
         ax.legend()

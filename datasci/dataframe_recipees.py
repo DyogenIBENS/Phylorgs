@@ -166,7 +166,7 @@ def matplotlib_stylebar(data, y=None, color='#d65f5f', horizontal=True,
                                                 **text_kwargs)
         xerr, yerr = None, err
 
-    axes = data.plot(kind=kind, y=y, color='#d65f5f', width=0.95,
+    axes = data.plot(kind=kind, y=y, color=color, width=0.95,
                      subplots=True, legend=False, sharex=sharex, sharey=sharey,
                      layout=layout, yerr=yerr, xerr=xerr,
                      error_kw={'capsize': 3, 'elinewidth': 1, 'alpha': 0.7})#'ecolor': mpl.rcParams['text.color']})

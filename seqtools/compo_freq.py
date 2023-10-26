@@ -33,7 +33,7 @@ def get_seq_counts(alignment, is_aa=False):
     unknown = AA_UNKNOWN if is_aa else NUCL_UNKNOWN
     ambiguous = AA_AMBIGUOUS if is_aa else NUCL_AMBIGUOUS
     seq_resid = np.zeros((alphab_len, len(alignment)))  # counts of A, C, G, T or amino-acids
-    seq_gap   = np.zeros(len(alignment))
+    seq_gap   = np.zeros(len(alignment))  # Number of gaps per sequence.
     seq_N     = np.zeros(len(alignment))
     if is_aa:
         seq_CpG, seq_stops = None, None
@@ -68,7 +68,7 @@ def get_seq_counts(alignment, is_aa=False):
 
 
 def get_seq_freqs(length, seq_nucl, seq_gap, seq_N, seq_CpG=None, seq_stops=None):
-    """composition frequencies **per sequence**"""
+    """composition frequencies **of each sequence**"""
     seq_nucltot = seq_nucl.sum(axis=0)
     seq_lengths = seq_nucltot + seq_N
     
@@ -100,11 +100,11 @@ def get_al_compo_summary(length, seq_counts, seq_freqs):
 
     nucl_count = seq_nucl.sum(axis=1)  # total number of each nucleotide (summed over sequences)
     nucl_tot   = nucl_count.sum()
-    gap_count  = seq_gap.sum()  # seq_gap.mean() --> / length
+    gap_count  = seq_gap.sum()  # total amount of gaps
     N_count    = seq_N.sum()
 
     global_stats = (np.sum(length),
-                    float(gap_count) / np.array(length),
+                    float(gap_count) / np.array(length),  # fraction of gaps PER SITE.
                     float(N_count)   / (nucl_tot+N_count)) \
                    + tuple(nucl_count.astype(float) / nucl_tot)
     try:
