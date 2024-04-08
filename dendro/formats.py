@@ -24,7 +24,7 @@ The Bio.Phylo.convert doesn't properly convert the comments from BEAST Nexus fil
 """
 
 
-from sys import stdin, stdout
+from sys import stdin, stdout, stderr
 from functools import partial
 from Bio import Phylo
 from Bio.Phylo import NewickIO
@@ -101,12 +101,18 @@ def nexus2nhx(infile, outfile, float_fmt='%g'):
     except AttributeError:
         out = open(outfile, 'w')
     try:
+        n_trees = 0
         for tree in Phylo.parse(infile, 'nexus'):
             apply_node_formats(tree, float_fmt, beast_comment_parser, NHX_comment_formatter)
             Phylo.write(tree, out, 'newick', format_branch_length=float_fmt)
+            n_trees += 1
     finally:
         if isinstance(outfile, (str, bytes)):
             out.close()
+    if not n_trees:
+        print('WARNING: no trees found in Nexus file', file=stderr)
+
+
 
 ## TODO: tests:
 # 1. Check if the resulting newick can be parsed by Ete3/Biopython/Newick-utils.

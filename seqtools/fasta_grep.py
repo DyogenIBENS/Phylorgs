@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+
+"""
+DEPRECATED: use 'seqname_grep' instead.
+"""
+
+
 import sys
 import re
 import bz2

@@ -101,18 +101,35 @@ def main():
     ax = plt.gca()
     xmin, xmax = ax.get_xlim()
     ymin, ymax = ax.get_ylim()
-    ax.text(xmax, ymax, 'E = %g' % distrib.mean(), va='top', ha='right')
+
+    quantiles = np.concatenate((distrib.ppf([0.05, 0.25, 0.5]),
+                                distrib.isf([0.25, 0.05])))
+    boxwidth = (ymax - ymin) / 10.
+    ypad = (ymax-ymin) / 100.
+    boxstats = dict(zip(('whislo', 'q1', 'med', 'q3', 'whishi'), quantiles))
+    boxstats['mean'] = distrib.mean()
+    box_elements = ax.bxp([boxstats], [-boxwidth / 2], widths=[boxwidth],
+                          showfliers=False, showmeans=True,
+                          vert=False, zorder=-1, manage_ticks=False)
+    for quanti in quantiles:
+        ax.vlines(quanti, 0+ypad, distrib.pdf(quanti)-ypad, colors=['.75'], linestyles='dashed')
+    ticklabels =['q%d%%\n%.3g' % (percent, quanti) for percent, quanti in zip((5, 25, 50, 75, 95), quantiles)]
+    ax.set_xticks(quantiles)
+    ax.set_xticklabels(ticklabels, fontsize='small')
+
+    ax.legend(box_elements['means'], ['mean = %g' % distrib.mean()])
+
     if args.command == 'gamma':
-        #ax.text(xmax, ymax, 'E = %g' % expectation_gamma_beta(alpha, beta, loc),
-        #        va='top', ha='right')
         ax.set_ylabel(r'$\Gamma(\alpha\,=%g; \beta\,=%g)$' % (alpha, beta))
     else:
         ax.set_ylabel(r'$%s(%s, s=%g, loc=%g)$' % (distribname, ', '.join(args.params), args.shape, args.loc))
 
-    plt.show(block=True)
+    # Styling
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
 
+    plt.show(block=True)
 
 
 if __name__ == '__main__':
     main()
-

@@ -23,6 +23,8 @@
 
 
 import sys
+import os.path as op
+import argparse as ap
 import random
 import numpy as np
 #import ete3
@@ -190,26 +192,25 @@ def sim_notsostable(phyltree, n0=10000, gamma_shape=2., gamma_mean=10.,
 
 
 
-if __name__ == '__main__':
-    import os.path as op
-    import argparse as ap
+def main():
     logging.basicConfig(format='%(levelname)s:%(funcName)s:%(message)s')
     logger.setLevel(logging.DEBUG)
 
     parser = ap.ArgumentParser(description=__doc__)
-    parser.add_argument('outforest')
+    parser.add_argument('phyltreefile')
     parser.add_argument('-n', '--n0', type=int, default=100)
     parser.add_argument('-r', '--root', default='Simiiformes')
     parser.add_argument('--gamma-shape', '--gs', type=float, default=2)
     parser.add_argument('--gamma-mean', '--gm', type=float, default=0.1)
     parser.add_argument('--overflowfactor', '--of', type=int, default=10000)
-    phyltreefile = op.expanduser('~/ws7/DUPLI_data93/PhylTree.TimeTree201901.Ensembl93-like.goodQual.nwk')
-    phyltree = myPhylTree.PhylogeneticTree(phyltreefile)
-
     clargs = vars(parser.parse_args())
-    outfile = clargs.pop('outforest')
-    forest = sim_notsostable(phyltree, **clargs)
-    with open(outfile, 'w') as out:
-        for i in range(1, clargs['n0']+1):
-            forest.printTree(out, i)
 
+    phyltree = myPhylTree.PhylogeneticTree(clargs.pop('phyltreefile'))
+
+    forest = sim_notsostable(phyltree, **clargs)
+    for i in range(1, clargs['n0']+1):
+        forest.printTree(sys.stdout, i)
+
+
+if __name__ == '__main__':
+    main()

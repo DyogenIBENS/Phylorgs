@@ -271,6 +271,7 @@ def all_rec_to_treebest(ale_rec_file, treebest_outfile, phyltreefile=None):
 
 
 def main():
+    logging.basicConfig()
     parser = ap.ArgumentParser(description=__doc__)
     parser.add_argument('ale_rec_file')
     parser.add_argument('treebest_outfile')
@@ -278,7 +279,6 @@ def main():
     args = parser.parse_args()
     all_rec_to_treebest(**vars(args))
 
-    
+
 if __name__ == '__main__':
-    logging.basicConfig()
     main()
