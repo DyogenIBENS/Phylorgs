@@ -1168,8 +1168,6 @@ if __name__ == '__main__':
     beaststats_parser = subp.add_parser('beast', parents=[parent_parser], aliases=['be'])
     beaststats_parser.add_argument('-S', '--filesuffix', default='_beastS-summary.txt',
                              help='file suffix of the globbing pattern [%(default)s]')
-    beaststats_parser.add_argument('-w', '--wildcard-pattern', default=WILDCARD_PATTERN,
-                             help='allowed pattern for the wildcard [%(default)s]')
     beaststats_parser.set_defaults(func=make_subparser_func(get_beast_stats))
     familystats_parser = subp.add_parser('family', parents=[parent_parser], aliases=['fam'])
     familystats_parser.set_defaults(func=make_subparser_func(get_family_stats))

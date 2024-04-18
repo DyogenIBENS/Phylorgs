@@ -14,9 +14,11 @@ import numpy as np
 import ete3
 import argparse
 import logging
+from warnings import warn
 
 import LibsDyogen.myPhylTree as PhylTree # my custom python3 version
 
+from dendro.parsers import read_multinewick
 from genchron.MPL import *
 from IOtools import Stream
 
@@ -239,7 +241,7 @@ def partialmatch(word, choices):
             if any((w in c or c in w) for w in wordcuts for c in cuts)]
 
 
-def first_larger_clade(clade, nodecladedict, previousmatches):
+def first_larger_clade(clade: set, nodecladedict: OrderedDict, previousmatches: dict):
     """Iterate from the smallest clades to the largest. Do a `searchsorted`"""
     nested_unmatched = []
     for post_id, (node, searchclade) in enumerate(nodecladedict.items()):
@@ -250,8 +252,12 @@ def first_larger_clade(clade, nodecladedict, previousmatches):
         elif searchclade >= clade:
             # The first source clade containing or equal to the target clade is the good match
             if searchclade > clade:
-                logger.error('Non exact clade match: #%s %r',
-                               post_id, node.name)
+                logger.error("Non exact clade match: #%s %r (%d extra leaves). "
+                             "If you get a large mismatch, it's likely that the"
+                             " trees don't correspond at all, so please check "
+                             "if your monophyletic clades are the ones you expect.",
+                             post_id, node.name, len(searchclade - clade))
+                logger.debug('Larger clade also has: %s', ', '.join(searchclade - clade))
                 return
             if node in previousmatches:
                 logger.warning('Source #%s %r already used for: %s (polytomy?)',
@@ -279,8 +285,24 @@ def add_src_features(src_node_id, srcnode, nested_unmatched, node,
                 err.args = (msg,) + err.args[1:]
                 raise
     if nested_unmatched:
-        nested_features = [make_new_features(n, update_features, defaults, reassigns, types)
-                           for n in nested_unmatched]
+        # Nodes from the source tree that resolve the current polytomy of the target tree.
+        # some features must be taken into account (dist).
+        nested_features = []
+        for nested_node in nested_unmatched:
+            try:
+                nested_features.append(make_new_features(nested_node, update_features, defaults, reassigns, types))
+            except AttributeError as err:
+                # Rather unexpected lack of features.
+                # Seems that TreeAnnotator might create nodes without data if dist==0
+                err_info = 'Nested node (dist=%s posterior=%s) under #%s %r -> %r: ' % (nested_node.dist, nested_node.posterior, src_node_id, srcnode.name, node.name)
+                if nested_node.dist == 0:
+                    logger.error(err_info + '%s', ' '.join(err.args))
+                    nested_features.append({})
+                else:
+                    err.args = (err_info + err.args[0],) + err.args[1:]
+                    raise
+                #FIXME: could probably just use zeros for all features
+
         # Find the children to update:
         for child in node.children:
             extfeatures = [nft for n, nft in zip(nested_unmatched, nested_features)
@@ -294,11 +316,9 @@ def add_src_features(src_node_id, srcnode, nested_unmatched, node,
                     # and if it's due to incorrect clade match, it's likely only in the
                     # outgroup, because I am usually running this on the 'robust' trees
                     logger.error(msg)
-                    
 
 
-
-def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'],
+def update_tree_nodes(targettree, srctree, update_features=['name'],
                       defaults=None, reassigns=None, extends=None, types=None):
     """Match nodes when the differences are only polytomies
     or extra single-child nodes. Then update the target tree features."""
@@ -327,13 +347,14 @@ def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'
 
     # Check that the leaf names match.
     leaves = set(targettree.iter_leaf_names())
+    ambiguous = {}
     if leaves == srcleaves:
         srcleaf_match = {leaf: leaf for leaf in leaves}
     else:
         if len(leaves) != len(srcleaves):
-            logger.warning('Source tree has %d leaves VS %d in target tree' % (len(srcleaves), len(leaves)))
+            warn('Source tree has %d leaves VS %d in target tree' % (len(srcleaves), len(leaves)))
         if leaves & srcleaves:
-            logger.warning('Some source leaves are found in target, but not all!')
+            warn('Some source leaves are found in target, but not all!')
         # Try to match the names, when one name is a substring of the other
         srcleaves_list = sorted(srcleaves)
         srcleaf_match = {}  # leaf.name: srcleaf.name
@@ -371,7 +392,6 @@ def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'
         # One target matches several src, but only one is matched exclusively.
         unlinked = set()
         new_match_counts = {srcleaf: 0 for srcleaf in srcleaves_list}
-        ambiguous = {}
         for leaf, matches in srcleaf_match.items():
             unlinked.update([match for match in matches if match_counts[match]>1])
             newmatches = [match for match in matches if match_counts[match]==1]
@@ -439,30 +459,32 @@ def update_tree_nodes(targettree, srctree, leaf1_2=None, update_features=['name'
                     for old_set in src_match.values():
                         if descendant in old_set:
                             old_set.remove(descendant)
-                            logger.warning('Old src match of %r discarded', descendant.name)
+                            warn('Old src match of %r discarded' % descendant.name)
                             break
                     # rematch
                     try:
                         rematch, = list(first_larger_clades(leaf_sets[descendant], srcleaf_sets, src_match))
                     except IndexError:
                         continue
-                    add_src_features(*rematch, descendant, update_features, defaults, reassigns, extendds, types, leaf_sets, srcleaf_sets)
+                    add_src_features(*rematch, descendant, update_features, defaults, reassigns, extends, types, leaf_sets, srcleaf_sets)
                     src_match[rematch[1]] = descendant
                 break
             else:
                 # there is no match, even considering alternative clade content (using ambiguities).
-                logger.warning('Unmatched target node: %r', node.name)
+                warn('Unmatched target node: %r' % node.name)
 
     unmatched_leaves = leaf_sets[targettree] ^ srcleaf_sets[srctree]
     if unmatched_leaves:
-        logger.warning('Unmatched leaves: %s', '; '.join(unmatched_leaves))
+        warn('Unmatched leaves: ' + '; '.join(unmatched_leaves))
+        # Using the warnings.warn function to hide repeated occurrences
 
     if set(srcleaf_sets).difference(src_match):
         unmatched_srcnode_ids = [(post_id, srcnode.name, ','.join(srcleaf_sets[srcnode]))
                                  for post_id, srcnode in enumerate(srctree.traverse('postorder'))
                                  if srcnode not in src_match]
-        logger.warning('%d unmatched source nodes: %s', len(unmatched_srcnode_ids),
-                        '; '.join('#%s %r (%s)' % elem for elem in unmatched_srcnode_ids))
+        warn(str(len(unmatched_srcnode_ids)) + ' unmatched source nodes: ' +
+             '; '.join('#%s %r (%s)' % elem for elem in unmatched_srcnode_ids))
+        # Using the warnings.warn function to hide repeated occurrences
 
 
 
@@ -1008,14 +1030,19 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                     break
     #FIXME: the BEAST_MEASURE check is also done in the calling function (process())
     elif BEAST_MEASURES.union(('beast:dist',)).intersection(measures):
-        try:
-            tree = ete3.Tree(resultfile, format=1)  # consensus tree from Beast + TreeAnnotator.
-        except ete3.parser.newick.NewickError as e:
-            if os.path.exists(resultfile):
-                e.args = ("Malformed newick tree structure in %r" % resultfile,)
-            else:
-                e.args = ("Unexisting tree file %r" % resultfile,)
-            raise
+        with open(resultfile) as result:
+            ndataset = 0
+            for ndataset, newick in enumerate(read_multinewick(result), start=1):
+                try:
+                    tree = ete3.Tree(newick, format=1)  # consensus tree from Beast + TreeAnnotator.
+                except ete3.parser.newick.NewickError as e:
+                    e.args = ("Malformed newick tree structure in %r" % resultfile,)
+                    raise
+                if ndataset > 1:
+                    raise NotImplementedError("Beast result file should contain a single annotated tree. "
+                                     "To read multinewicks, use '--measures dist'.")
+            if ndataset == 0:
+                raise ValueError('No tree in %r' % resultfile)
 
         fulltree = orig_fulltree.copy()
         update_tree_nodes(fulltree, tree,
@@ -1026,6 +1053,24 @@ def setup_fulltree(resultfile, phyltree, replace_nwk='.mlc', replace_by='.nwk',
                           extends=BEAST_EXTEND_BRANCH,
                           types=BEAST_TYPES)
         yield fulltree
+    else:
+        # General multinewick input, not assuming any specific node features except from the 'measures' list.
+        with open(resultfile) as result:
+            ndataset = 0
+            for ndataset, newick in enumerate(read_multinewick(result), start=1):
+                try:
+                    tree = ete3.Tree(newick, format=1)  # consensus tree from Beast + TreeAnnotator.
+                except ete3.parser.newick.NewickError as e:
+                    e.args = ("Malformed newick tree structure #%d in %r" % (ndataset, resultfile),)
+                    raise
+                fulltree = orig_fulltree.copy()
+                fulltree.add_feature('ndataset', ndataset)
+                update_tree_nodes(fulltree, tree, update_features=measures)
+                for node in fulltree.traverse():
+                    node.name += ('#%d' % ndataset)  # in MPL.ANCGENE2SP, 'ENS' or '#' delimits the species name.
+                yield fulltree
+            if ndataset == 0:
+                raise ValueError('No tree in %r' % resultfile)
 
 
 #def process_tonewick(mlcfile, phyltree, replace_nwk='.mlc', measures=['dS'], 

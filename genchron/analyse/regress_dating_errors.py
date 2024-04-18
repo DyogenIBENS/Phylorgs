@@ -2072,29 +2072,37 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
     bars_to_show += psummary_kw.pop('bars', [])
     bars_mid_to_show = ['VIFs'] + psummary_kw.pop('bars_mid', [])
     info_to_join = psummary_kw.pop('join', None)
-    simple_regressions =  [model(a[y], sm.add_constant(a[features])[['const']]).fit(**fit_params)]
+    # We **must** apply a multiple test correction, even if this is a multiple regression,
+    # because we have first performed a variable selection step (post-selection inference).
+    # Benjamini-Hochberg is not stringent enough (the number of selected features is too low)
+    # We can instead do a Bonferroni by considering the total number of *initial* features.
+    adj_pvalues = fit.pvalues.loc[selected_features] * len(features)
+    simple_regressions =  [model(a[y], sm.add_constant(a[selected_features])[['const']]).fit(**fit_params)]
     simple_regressions += [model(a[y], sm.add_constant(a[ft])).fit(**fit_params)
-                           for ft in features]
+                           for ft in selected_features]
+    simple_reg_adj_pvals = [reg.pvalues[ft] * len(features) for ft, reg in
+                            zip(selected_features, simple_regressions[1:])]
     partial_r2s = leave1out_eval(['const']+selected_features,
                                  partial(partial_r_squared_fromreduced, fit))
-    #vifs = [smo.variance_inflation_factor(a[['const']+selected_features], i)
     vifs = [VIF(fit, ft) for i,ft in enumerate(['const']+selected_features)]
     r2_attr = 'prsquared' if model.__name__ == 'Logit' else 'rsquared'
     param_info = pd.concat((
+                    adj_pvalues.rename('adj. p-value'),
                     pslopes.data.coef.rename('Lasso coef'),
                     pd.DataFrame([(reg.params.loc[ft],
                                    getattr(reg, r2_attr),
                                    reg.pvalues[ft],
                                    *reg.conf_int().loc[ft])
-                                  for ft, reg in zip(['const'] + features,
+                                  for ft, reg in zip(['const'] + selected_features,
                                                      simple_regressions)],
-                                 index=['const'] + features,
+                                 index=['const'] + selected_features,
                                  columns=['Simple regression coef',
                                           'Simple regression R2',
                                           'Simple regression p-value',
                                           'Simple regression [0.025',
                                           'Simple regression 0.975]']),
-                    pd.Series(vifs, index=['const']+selected_features, name='VIFs')
+                    pd.Series(vifs, index=['const']+selected_features, name='VIFs'),
+                    pd.Series(simple_reg_adj_pvals, index=selected_features, name='Simple regression adj. p-value')
                     ) + (() if info_to_join is None else (info_to_join,)),
                     axis=1, sort=False)
 
@@ -2478,9 +2486,8 @@ class fullRegression(object):
         # First drop features that were excluded manually (after seeing the first PCA).
         try:
             a_n_inde = a_n.drop(must_drop_features, axis=1)
-            #a_t.drop(must_drop_features, axis=1, inplace=True)
-        except KeyError as err:
-            logger.warning("Not in `self.a_n`:" + err.args[0])
+        except KeyError:
+            logger.warning("Not in `self.a_n`:" + ' '.join(must_drop_features.difference(a_n.columns)))
             a_n_inde = a_n.drop(must_drop_features, axis=1, errors='ignore')
         logger.info('Manual drop: %s', ' '.join(a_n.columns.intersection(must_drop_features)))
         print('%d Independent columns (%d rows)' % a_n_inde.shape[::-1], file=self.out)
@@ -2494,10 +2501,10 @@ class fullRegression(object):
                      if pair[0] in must_drop_features]
         if self.missing_todecorr:
             logger.warning('Unexpected missing pairs to renorm(log)decorr: %s',
-                           self.missing_todecorr)
+                           ' '.join('%s~%s' % pair for pair in self.missing_todecorr))
         if self.dropped_todecorr:
             logger.warning('Dropped before renorm(log)decorr: %s',
-                           self.dropped_todecorr)
+                           ' '.join('%s~%s' % pair for pair in self.dropped_todecorr))
         # Filtered
         valid_item = lambda item: (item[1][0] in a_t
                                             and item[1][1] in a_t
@@ -2831,10 +2838,9 @@ class fullRegression(object):
             bad_props_ttests[badp] = tt_badp
             self.bad_props_counts[badp] = is_badval.sum()
 
-        logger.warning('Hard-coded Bad properties not in the columns: %s',
-                       ' '.join(missing_bad_props))
-        #a_n_inde2 = a_n_inde.query(' & '.join('(%s==0)' % p for p in bad_props))\
-        #                .drop(bad_props, axis=1, errors='ignore')
+        if missing_bad_props:
+            logger.warning('Hard-coded Bad properties not in the columns: %s',
+                           ' '.join(missing_bad_props))
 
         self.bad_data_rows = bad_data_rows = self.a_t.reindex(a_n_inde.index).isin(bad_props).any(axis=1)
         self.bad_props_counts['ANY'] = bad_data_rows.sum()
@@ -2978,10 +2984,15 @@ class fullRegression(object):
         if self.suggested_transform[y].__name__.startswith('binarize') or \
                 np.issubdtype(a_n_inde2[y].dtype, bool):
             def responseplot(x, y, ax=None):
-                return sb.violinplot(a_n_inde2, x=x, y=y, inner='stick', orient='h', ax=ax, color='.7')
+                ax = sb.violinplot(a_n_inde2, x=x, y=y, inner='stick', orient='h', ax=ax, color='.7')
+                ax.autoscale(False, 'y')  # Stay focused on the data limits, do not adjust Y axis because of regression lines.
         else:
             def responseplot(x, y, ax=None):
-                return scatter_density(a_n_inde2[x], a_n_inde2[y], alpha=0.4, ax=ax)
+                scatter_density(a_n_inde2[x], a_n_inde2[y], alpha=0.4, ax=ax)
+                ax = ax if ax is not None else plt.gca()
+                ymin, ymax = ax.get_ylim()
+                ax.autoscale(False, 'y')
+                ax.set_ylim(ymin, ymax)
 
         fit_figs = []
         iter_coeffs = range(1, min(16, len(self.reslopes2.index)))
@@ -2990,7 +3001,7 @@ class fullRegression(object):
         for coef_i in iter_coeffs:
             fig, ax = plt.subplots(num=777, clear=True) # If plt.show go crazy, this reuses the previous fig
             responseplot(self.slopes2.index[coef_i], y, ax=ax)
-            ax.autoscale(False)  # Let's stay focused on the data limits, do not adjust Y axis because of regression lines.
+            #ax.relim(); ax.autoscale_view()
             x = np.array(ax.get_xlim())
             a, b = reslopes2.loc[['const', self.slopes2.index[coef_i]], 'Simple regression coef']
             ax.plot(x, 0 + b*x, '--', label='Simple Regression line (a=%g b=%g)' % (0,b))
@@ -3079,6 +3090,15 @@ class fullRegression(object):
     def plot_coefs(self, fig_columns=['coef'], renames=None, signif_levels=[0.05, 0.01]):
         # fig_columns could also include: ['Lasso coef', 'Simple regression coef']
         if renames is None: renames = {}
+        # Adjust significance levels if not given
+        if signif_levels is None:
+            raise NotImplementedError('Automatic choice of significance levels')
+            signif_levels = [0.05]
+            signif_pvals = pvalues[pvalues>0.05]
+            signif_levels.append(10**round(np.log10(median(signif_pvals))))
+        signif_levels = - np.asarray(signif_levels)  # negate pvalue cutoffs to sort by increasing significance
+        signif_levels.sort()
+
         ax_titles = {'coef': 'Multiple regression coefficient',
                      'Lasso coef': 'Lasso regression',
                      'Simple regression coef': 'Simple regression'}
@@ -3087,24 +3107,17 @@ class fullRegression(object):
 
         coef_err = coefs[['[0.025', '0.975]']].subtract(coefs.coef, axis=0).abs().values.T
         nan_err = np.full(coef_err.shape, np.NaN)
-        barcolors = ['#d65f5fff' if p<=signif_levels[0] else '#d65f5f88' for p in coefs['P>|z|'].values]
+        pvalues = coefs['adj. p-value'].values
+        # Specify the colors explicitly using the dict form, otherwise only the first color of the list is used.
+        barcolors = {colname: '#d65f5f' for colname in fig_columns}
+        barcolors['coef'] = ['#d65f5fff' if p<=-signif_levels[0] else '#d65f5f88' for p in pvalues]
 
         axes = matplotlib_stylebar(coefs.rename(renames), fig_columns, barcolors,
                                    err=np.array([coef_err]+[nan_err]*(ncols-1)),
                                    float_fmt='% .4f')
         #ax0_xmax = axes[0].texts[0].get_window_extent().x1  # In figure pixels? Requires a renderer.
         ax0_xmax = coefs['0.975]'].max()
-        # Adjust significance levels if not given
-        if signif_levels is None:
-            raise NotImplementedError('Automatic choice of significance levels')
-            pvalues = coefs['P>|z|'].values
-            signif_levels = [0.05]
-            signif_pvals = pvalues[pvalues>0.05]
-            signif_levels.append(10**round(np.log10(median(signif_pvals))))
-        signif_levels = - np.asarray(signif_levels)  # negate pvalue cutoffs to sort by increasing significance
-        signif_levels.sort()
-
-        for j, (ft, pval) in enumerate(coefs['P>|z|'].items()):
+        for j, (ft, pval) in enumerate(coefs['adj. p-value'].items()):
             starring = '*' * np.searchsorted(signif_levels, - pval, side='right')
             txt = axes[0].annotate('%-4s' % starring, (ax0_xmax, j), va='center', ha='left',
                                    textcoords='offset points', xytext=(45,2))  # Ad hoc xytext, must go left of the coef texts.
@@ -3116,9 +3129,9 @@ class fullRegression(object):
         axes[0].tick_params(bottom=True, labelbottom=True)
         axes[0].grid(axis='x', color='.2', alpha=0.5)
         axes[0].set_xticklabels(['-0.5', '0', '0.5'])
-        axes[0].annotate('\n'.join('%-4s: p-value ≤ %-4g' % (('*' * i), -lvl)
+        axes[0].annotate('\n'.join('%-4s: adj. p-value ≤ %-4g' % (('*' * i), -lvl)
                                    for i,lvl in enumerate(signif_levels, start=1)),
-                        xy=(ax0_xmax, axes[0].get_ylim()[0]), #xycoords='axes fraction',
+                        xy=(axes[0].get_xlim()[1]/2., axes[0].get_ylim()[0]), #xycoords='axes fraction',
                         xytext=(0,-18), textcoords='offset points',
                         va='top', ha='left', fontsize='xx-small')
 
@@ -3182,21 +3195,23 @@ class fullRegression(object):
               response_transform),
               file=self.out)
 
-        print('\n#### Original data:', file=self.out)
+        print('\n#### Original data: (mean ± std)', file=self.out)
         summary_lowest = self.alls.loc[fitted_lowest,
                                     [y] + top_features
                                   ].agg(['median', 'mean', 'std', ci95])
         summary_highest = self.alls.loc[fitted_highest,
                                     [y] + top_features
                                   ].agg(['median', 'mean', 'std', ci95])
-        idx = pd.IndexSlice
         self.predicted_extremes = pd.concat((summary_lowest, summary_highest),
                                keys=['Predicted %s%% lowest' % percent,
                                      'Predicted %s%% highest' % percent],
-                               verify_integrity=True, sort=False, copy=False)\
-                               .style.format('{:g}')#\
-                               #.format('±{:g}', subset=idx[idx[:,'std'], [y]+top_features]))
-        self.display(self.predicted_extremes)
+                               verify_integrity=True, sort=False, copy=False)
+        # Format only the {mean} ± {std}
+        self.predicted_extremes_txt = (
+                self.predicted_extremes.xs('mean', level=1).applymap('{:.3g}'.format) +
+                self.predicted_extremes.xs('std', level=1).applymap(' ± {:.3g}'.format))
+        self.display(self.predicted_extremes_txt)
+
         iter_features = top_features if self.widget is None else self.widget(top_features)
         for ft in iter_features:
             colored = pd.Series('#7f7f7f', index=self.a_n_inde2.index, name='color')
@@ -3208,9 +3223,9 @@ class fullRegression(object):
             ax.set_ylabel(y)
             ax.set_xlabel(ft)
             self.show(fig)
-            negative_corr = (self.predicted_extremes.data[ft].loc[('Predicted %s%% lowest' % percent,
+            negative_corr = (self.predicted_extremes[ft].loc[('Predicted %s%% lowest' % percent,
                                                              'mean')]
-                            > self.predicted_extremes.data[ft].loc[('Predicted %s%% highest' % percent,
+                            > self.predicted_extremes[ft].loc[('Predicted %s%% highest' % percent,
                                                                'mean')])
             sorted_ft_propbad = self.alls.join(sorted_fit)\
                                    .sort_values(ft, ascending=negative_corr)\
@@ -3657,23 +3672,26 @@ class full_dating_regression(fullRegression):
         responses = self.responses
 
         print('\n# Merge features', file=self.out)
-        self.alls = alls = pd.concat((data.mean_errors,
-                                      data.ns[dataset_params],
-                                      cs_rates,
-                                      same_alls),
+
+        data_to_concat = [data.mean_errors, cs_rates, same_alls]
+        if dataset_params is not None:
+            data_to_concat.append(data.ns[dataset_params])
+
+        self.alls = alls = pd.concat(data_to_concat,
                                      axis=1, join='inner', sort=False,
                                      verify_integrity=True)
 
         if alls.shape[0] == 0:
             msg = ('NULL inner join from:\nmean_errors\n------\n'
                          + str(mean_errors.iloc[:5, :5]) + '\n'
-                         '\ndata.ns[dataset_params]\n------\n'
-                         + str(data.ns[dataset_params].iloc[:5, :5]) + '\n'
                          '\ncs_rates\n------\n'
                          + str(cs_rates.iloc[:5, :5]) + '\n'
                          '\nsame_alls\n------\n'
                          + str(same_alls.iloc[:5, :5]) + '\n'
                          )
+            if dataset_params is not None:
+                msg += ('\ndata.ns[dataset_params]\n------\n'
+                        + str(data.ns[dataset_params].iloc[:5, :5]) + '\n')
             raise RuntimeError(msg)
 
 

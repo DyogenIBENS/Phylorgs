@@ -68,6 +68,7 @@ if [ -n "${OPTARG-}" ]; then shift $(( OPTIND - 2 )); else shift $(( OPTIND - 1 
 # 2. or make a new safe temp name with mktemp -d
 
 beast_args=()
+beast_xml=''
 while [ "${1:-treeannotator}" != "treeannotator" ]; do
     beast_args+=("$1")
     [[ "$1" =~ .+\.xml$ ]] && beast_xml="$1"
@@ -108,9 +109,9 @@ mkdir -p "$workdir"
 
 # If output files already exist, and -resume is given,
 # move .log.bz2, .trees.bz2 and .state to the tmp dir, and uncompress.
-#TODO: check if uncompressed traces also exist.
 if [[ "${beast_args[@]}" =~ (^|[[:space:]])-resume([[:space:]]|$) ]]; then
     if [ -e "$finaldir/$srcbase.trees.bz2" ] && [ -e "$finaldir/$srcbase.log.bz2" ]; then
+        # First check that uncompressed traces don't already exist.
         if [ -e "$finaldir/$srcbase.trees" ] || [ -e "$finaldir/$srcbase.log" ]; then
             echo 'WARNING: Resuming from .bz2 files, but uncompressed .trees or .log exist!' >&2;
         fi

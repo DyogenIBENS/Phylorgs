@@ -66,6 +66,10 @@ logneg.__name__ = "-log10(-%s)"
 def sqrtneg(x):
     return -sqrt(-x)
 
+def logsqrt(x):
+    return np.log10(sqrt(x))
+logsqrt.__name__ = "log10(sqrt(%s))"
+
 # These should be classes, with attributes mainfunc, inc, offset, neg, and a __call__ method.
 def make_sqrtpostransform(inc=0):
     sqrtinc = lambda x: sqrt(x - x.min() + inc)
@@ -751,7 +755,7 @@ def display_decorrelate(decorr_item, data_raw, data_transformed, data_decorred,
         a, b = fit.params
         r2, pval = fit.rsquared, fit.f_pvalue
         ax.plot(x, a + b*x, '--', alpha=alpha,
-                label='a=%g b=%g\nR²=%g P-v=%g' % (a, b, r2, pval))
+                label='a=%g b=%g\nR²=%.3f P-v=%.3g' % (a, b, r2, pval))
         ax.legend()
     #fig.tight_layout()  # tight layout often goes havoc with colorbars.
     return fig
@@ -766,15 +770,29 @@ def display_regress_scatter(xvar, yvar, data=None, ax=None):
     #if var not in data.columns and re.search(r'[+-/*]', var):
     #    var = data[var]
     #    correlated_var = data[correlated_var]
-    finite = np.isfinite(data[xvar]) & np.isfinite(data[yvar])
+    if data is None:
+        xdata = xvar
+        ydata = yvar
+        try:
+            xvar = xdata.name
+        except AttributeError:
+            xvar = 'x'
+            xdata = pd.Series(xdata, name='x')
+    else:
+        xdata = data[xvar]
+        ydata = data[yvar]
 
-    fit = sm.OLS(data[yvar][finite], sm.add_constant(data[[xvar]][finite])).fit()
+    finite = np.isfinite(xdata) & np.isfinite(ydata)
+    xdata = xdata[finite]
+    ydata = ydata[finite]
+
+    fit = sm.OLS(ydata, sm.add_constant(xdata)).fit()
     a, b = fit.params[['const', xvar]]
     #ax.annotate('', xright, ybottom, ''
-    ax.plot(xlim, a + b*xlim, '-', label='y = %g + %g × x' % (a,b))
+    ax.plot(xlim, a + b*xlim, '-', label='y = %g + %g x\nR²=%.3f  F p-val=%.3g' % (a,b,fit.rsquared, fit.f_pvalue))
     ax.annotate(('%d non finite\n' % (~finite).sum()) +
-        ('Pearson R: %.4f\n' % stats.pearsonr(data[xvar][finite], data[yvar][finite])[0]) +
-        ('Spearman R: %.4f\n' % stats.spearmanr(data[xvar][finite], data[yvar][finite])[0]),
+        ('Pearson R: %.4f\n' % stats.pearsonr(xdata, ydata)[0]) +
+        ('Spearman R: %.4f\n' % stats.spearmanr(xdata, ydata)[0]),
         (xlim[1], ylim[1] if b<0 else ylim[0]),
         ha='right', va=('top' if b<0 else 'bottom'))
     ax.legend()
