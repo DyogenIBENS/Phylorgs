@@ -1,15 +1,16 @@
 #!/usr/bin/python3
 # coding: utf-8
 
+# flake8-in-file-ignores: noqa: F403,E261,E266
+
 import sys
 import os.path as op
-import itertools as it
 from itertools import chain
 import textwrap
 from datetime import datetime as dt
 
 import warnings
-from copy import copy, deepcopy
+from copy import deepcopy
 import numpy as np
 from numpy.lib.arraysetops import setdiff1d
 import pandas as pd
@@ -24,40 +25,30 @@ import seaborn as sb
 from objectools import Args, as_args, generic_update, generic_remove_items
 from seqtools.compo_freq import weighted_std
 from dendro.bates import dfw_pairs_generalized, dfw_pairs
-from dendro.framed import get_topo_time
 from datasci.graphs import scatter_density, \
-                           plot_cov, \
+                           intersection_plot, \
                            heatmap_cov, \
                            plot_loadings, \
-                           plot_features_radar, \
                            plottree, \
                            plottree_set_xlim, \
                            stackedbar, \
-                           dodged_violin, \
                            cathist, \
                            fade_color_hex, \
                            darken_hex
-from datasci.compare import pairwise_intersections, align_sorted
-from datasci.stats import r_squared, adj_r_squared, multicol_test, multi_vartest,\
+from datasci.stats import r_squared, multicol_test, multi_vartest,\
                           rescale_groups, iqr, iqr90, iqr95, ci95, mad, trimstd, trimmean, \
-                          mean_absdevmed, f_test, VIF, partial_r_squared_fromreduced
+                          mean_absdevmed, VIF, partial_r_squared_fromreduced
 from datasci.routines import *
 from datasci.dataframe_recipees import *
 
 from dendro.any import myPhylTree as phyltree_methods, ete3 as ete3_methods
-import ete3
 
 from LibsDyogen import myPhylTree
 
-import scipy.stats as stats  # stats.levene
+from scipy import stats
 from sklearn.decomposition import PCA, FactorAnalysis
-from sklearn.linear_model import LinearRegression, Lasso  # Lasso doesn't work.
-from sklearn.preprocessing import StandardScaler
 import statsmodels.api as sm
-#import statsmodels.formula.api as smf
-import statsmodels.stats.api as sms
 import statsmodels.stats.multitest as smm
-import statsmodels.stats.outliers_influence as smo  # variance_inflation_factor
 import statsmodels.graphics as smg  # smg.gofplots.qqplot
 
 from IPython.display import display_html, display_markdown
@@ -67,21 +58,23 @@ from datasci.savior import HtmlReport, CellReport, DoubleReport, \
                       reroute_loggers
 import logging
 
-# BUG in Jupyter Notebook: I must catch the following error:
-import joblib.externals.loky.process_executor #.TerminatedWorkerError
+try:
+    # BUG in Jupyter Notebook: I must catch the following error:
+    from joblib.externals.loky.process_executor import TerminatedWorkerError
+except ImportError:
+    pass
 
-logfmt = "%(levelname)-7s:l.%(lineno)3s:%(funcName)-20s:%(message)s"
-logf = logging.Formatter(logfmt)
+_LOGFMT = "%(levelname)-7s:l.%(lineno)3s:%(funcName)-20s:%(message)s"
+_LOGF = logging.Formatter(_LOGFMT)
 
 try:
     from UItools import colorlog
-    #clogfmt = "$LVL%(levelname)-7s:$RESET${white}l.%(lineno)3s:%(funcName)-20s:$RESET%(message)s"
-    clogfmt = "$LVL%(levelname)-7s:${RESET}l.%(lineno)2s:$RESET%(message)s"
-    colorlogf = colorlog.ColoredFormatter(clogfmt)
-    clogfmt2 = "$LVL%(levelname)-7s:${RESET}%(module)s:$BLACK%(funcName)-20s$RESET:%(message)s"
-    colorlogf2 = colorlog.ColoredFormatter(clogfmt2)
+    _CLOGFMT = "$LVL%(levelname)-7s:${RESET}l.%(lineno)2s:$RESET%(message)s"
+    _COLORLOGF = colorlog.ColoredFormatter(_CLOGFMT)
+    _CLOGFMT2 = "$LVL%(levelname)-7s:${RESET}%(module)s:$BLACK%(funcName)-20s$RESET:%(message)s"
+    _COLORLOGF2 = colorlog.ColoredFormatter(_CLOGFMT2)
 except ImportError:
-    colorlogf = colorlogf2 = logf
+    _COLORLOGF = _COLORLOGF2 = _LOGF
 
 # Notebook setup
 logger = logging.getLogger(__name__)
@@ -94,14 +87,14 @@ logger_dfr = logging.getLogger('datasci.dataframe_recipees')
 loggers = (logger, logger_stats, logger_graphs, logger_routines, logger_dfr)
 
 sh = logging.StreamHandler(sys.stdout)
-sh.setFormatter(colorlogf)
+sh.setFormatter(_COLORLOGF)
 for hdlr in logger.handlers:
     hdlr.close()
 logger.handlers = []
 logger.addHandler(sh)
 
 sh2 = logging.StreamHandler(sys.stdout)
-sh2.setFormatter(colorlogf2)
+sh2.setFormatter(_COLORLOGF2)
 for logr in loggers[1:]:  # From imported modules
     for hdlr in logr.handlers:
         hdlr.close()
@@ -136,7 +129,7 @@ thesisfigsize = (9.71, 5.85)  # visual fontsize = 9
 
 ## chronos ages: 'age.{m}'     with m in ('PL1', 'PL100', 'R1', ..., 'MPL')
 
-## age_measures -> 'age_{m}    m in ('dS', 't', 'dN', 'dist') (represents substitutions/site)   
+## age_measures -> 'age_{m}    m in ('dS', 't', 'dN', 'dist') (represents substitutions/site)
 
 ## Original branch lengths in substitutions
 ## dist_measures/branch_measures: 'branch_{m}'
@@ -158,8 +151,9 @@ RATE_MEASURES = ['%s_rate' % m for m in MEASURES]
 RATE_STD_MEASURES = [r + '_std' for r in RATE_MEASURES]
 
 
-# Convert "time used" into seconds.  # ~~> numbertools? timetools? converters?
+# ~~> numbertools? timetools? converters?
 def time2seconds(time_str):
+    """Convert "time used" into seconds."""
     factors = [1, 60, 3600, 3600*24]
     s = 0
     for factor, n_units in zip(factors, reversed(time_str.split(':'))):
@@ -168,12 +162,14 @@ def time2seconds(time_str):
 
 
 def load_stats_al(alfile):
+    """Load stats table computed from alignments"""
     return pd.read_csv(alfile, index_col=0, sep='\t')
 
 load_any_stats = load_stats_al
 
 
 def load_stats_tree(treefile):
+    """Load stats table computed from trees"""
     ts = pd.read_csv(treefile, index_col=0, sep='\t',
                      dtype={'leaves_robust':      bool,
                             'single_child_nodes': bool,
@@ -189,12 +185,14 @@ def load_stats_tree(treefile):
     return ts
 
 def load_stats_codeml(codemlfile):
+    """Load stats table computed from Codeml output"""
     cs = pd.read_csv(codemlfile, index_col=0, sep='\t')
     cs['seconds'] = cs['time used'].apply(time2seconds)
     return cs
 
 
 def load_stats_chronosruns(runsfile):
+    """Load stats table computed from APE::chronos calculations"""
     rs = pd.read_csv(runsfile, sep='\t', index_col=0)
     rs.set_axis([c.replace('.', '_') for c in rs.columns], axis=1, inplace=True)
     for c in rs.columns:
@@ -227,13 +225,13 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
 
     Example template: 'subtreesRawTreeBestO2_{stattype}stats_Simiiformes.tsv'
     """
-    
+
     # ## Load tree/alignment statistics
     output_tables = []
     for stattype in stattypes:
         filename = template.format(stattype=stattype)
         logger.info('Load %s', filename)
-        
+
         try:
             loader = stat_loaders[stattype]
         except KeyError:
@@ -245,57 +243,23 @@ def load_subtree_stats(template, stattypes=('al', 'tree', 'codeml')):
     return tuple(output_tables)
 
 
-# ~~> datasci.graphs
-def intersection_plot(**named_sets):
-    labels, *values = pairwise_intersections(**named_sets)
-
-    intersections = np.array(values)
-    stackedbar(np.arange(len(labels)), intersections, zero=1, orientation='horizontal');
-    ax = plt.gca()
-    ax.set_yticks(np.arange(len(labels)))
-    ax.set_yticklabels(['%s ^ %s' % lab for lab in labels], size='large')
-    return ax
-
 #def check_load_subtree_stats(aS, ts, cs, clS=None, figsize=(10,3)):
 def check_subtree_stats(subtrees_stats, figsize=(10,3)):
-    
-    #logger.info("shapes: aS %s, ts %s, cs %s" % (aS.shape, ts.shape, cs.shape))
-    #logger.info("aS has dup: %s", aS.index.has_duplicates)
-    #logger.info("ts has dup: %s", ts.index.has_duplicates)
-    #logger.info("cs has dup: %s", cs.index.has_duplicates)
-    #common_subtrees = set(aS.index) & set(ts.index) & set(cs.index)
-    #logger.info("%d common subtrees" % len(common_subtrees))
-    #only_al = aS.index.difference(ts.index.union(cs.index))
-    #only_tr = ts.index.difference(aS.index.union(cs.index))
-    #only_co = cs.index.difference(aS.index.union(ts.index))
-    #l_al = len(only_al)
-    #l_tr = len(only_tr)
-    #l_co = len(only_co)
-    #logger.warning("%d only in al stats: %s" % (l_al, list(only_al)[:min(5, l_al)]))
-    #logger.warning("%d only in tree stats: %s" % (l_tr, list(only_tr)[:min(5, l_tr)]))
-    #logger.warning("%d only in codeml stats: %s" % (l_co, list(only_co)[:min(5, l_co)]))
-    #
-    #intersect_kwargs = dict(aS=aS.index, ts=ts.index, cs=cs.index)
-    #if clS is not None:
-    #    logger.info("shape clS %s; clS has dup: %s; %d common subtrees.",
-    #                clS.shape, clS.index.has_duplicates,
-    #                len(common_subtrees & set(clS.index)))
-    #    intersect_kwargs['clS'] = clS.index
 
     for stype, ss in subtrees_stats:
         logger.info("%s shape: %s. Has dup: %s", stype, ss.shape, ss.index.has_duplicates)
         only_stype = ss.index.difference(set.union(*(set(oss.index)
-                                            for ostype,oss in subtrees_stats
+                                            for ostype, oss in subtrees_stats
                                             if ostype != stype))
                                         )
         l_only = len(only_stype)
         if l_only:
             logger.warning("%d only in %s stats: %s", l_only, stype,
                            list(only_stype)[:min(5, l_only)])
-    
-    common_subtrees = set.intersection(*(set(ss.index) for _,ss in subtrees_stats))
+
+    common_subtrees = set.intersection(*(set(ss.index) for _, ss in subtrees_stats))
     logger.info("%d common subtrees", len(common_subtrees))
-    intersect_kwargs = {stype: ss.index for stype,ss in subtrees_stats}
+    intersect_kwargs = {stype: ss.index for stype, ss in subtrees_stats}
 
     ax = intersection_plot(**intersect_kwargs)
     ax.figure.set_size_inches(figsize)
@@ -306,23 +270,23 @@ def check_subtree_stats(subtrees_stats, figsize=(10,3)):
 def merge_criterion_in_ages(criterion_serie, ages=None, ages_file=None,
                             criterion_name=None):
     """Merge a column into the *node ages* table: the common field is the *subgenetree*."""
-    
+
     assert (ages is not None or ages_file) and not (ages_file and ages is not None), "At least `ages` (dataframe) or `ages_file` (filename) must be given."
     if ages is None:
         ages = pd.read_csv(ages_file, sep='\t')
-    
+
     logger.info("Input shape: %s", ages.shape)
     criterion = criterion_serie.name if not criterion_name else criterion_name
     ages_subgenetrees = ages.subgenetree.unique()
-    
+
     if len(criterion_serie) < ages_subgenetrees.size \
             or set(criterion_serie.index) < set(ages_subgenetrees):
         logger.error("Not all genetrees have a criterion value: %d < %d" % (len(criterion_serie), ages_subgenetrees.size))
-    
+
     #criterion_df = pd.DataFrame({criterion: criterion_serie})
     criterion_df = criterion_serie.to_frame(criterion)
     assert (criterion_df.index == criterion_serie.index).all()
-    
+
     ages_c = pd.merge(ages, criterion_df, how='left', left_on='subgenetree', right_index=True)
     # If all subgenetrees have a criterion, equivalent to:
     #ages[criterion] = criterion[ages.subgenetree]
@@ -340,7 +304,7 @@ def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], co
                 if it produces a column named "treelink", this will be used to join `ts`.
                 (otherwise it joins on its index, i.e. the subgenetree values).
     """
-    
+
     beast_renames = {'height': 'age_beast',
                      'height_median': 'age_beastmedian',
                      'length': 'branch_beast',
@@ -352,12 +316,12 @@ def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], co
             .rename(columns=beast_renames)\
             .rename_axis('name')  # If coming from date_dup.R
     if measures is None:
-        measures = [c[4:] for c in ages.columns if c.startswith('age_')] 
+        measures = [c[4:] for c in ages.columns if c.startswith('age_')]
 
     # Type checks:
-    dtypes = {} if measures is None else {'%s_%s' % (s,m): float
-                                            for s in ('age', 'branch')
-                                            for m in measures}
+    dtypes = {} if measures is None else {'%s_%s' % (s, m): float
+                                          for s in ('age', 'branch')
+                                          for m in measures}
     dtypes.update(calibrated=bool, parent=str, taxon=str, is_outgroup=bool,
                   type=str, root=str, subgenetree=str)
     try:
@@ -368,7 +332,7 @@ def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], co
 
     # Convert beast string ranges to floats, in 2 columns:
     rangevars = ['height_95%_HPD', 'height_range', 'length_95%_HPD', 'length_range', 'rate_95%_HPD', 'rate_range']
-    if len(ages.columns.intersection(rangevars)):
+    if ages.columns.intersection(rangevars):
         logger.debug('ages[rangevars].dtypes = %s', ages[rangevars].dtypes)
         for var in rangevars:
             parsedrange = ages[var].replace("None", "NaN").astype(str)\
@@ -411,7 +375,7 @@ def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], co
                       suffixes=('', '_parent'), indicator=True,
                       validate='many_to_one')\
                 .set_index('name')
-    logger.info("Shape ages with parent info: %s" % (ages_p.shape,))
+    logger.info("Shape ages with parent info: %s", ages_p.shape)
     n_nodes_p = ages_p.shape[0]
 
     if n_nodes_p < n_nodes:
@@ -424,7 +388,7 @@ def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], co
     # else they are the direct children of the roots that could be dated with MPL,
     #      or if tabulate_ages_from_tree was used, any child of the root.
 
-    logger.info("\nOrphans: %d\n" % (orphans.sum()))
+    logger.info("Orphans: %d", orphans.sum())
     #display_html(ages_orphans.head())
 
     #expected_orphans = ages.is_outgroup_parent.isna()
@@ -441,14 +405,14 @@ def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], co
                             .rename('Sum of NaNs').to_frame().T)
     logger.warning('CHECK those orphan taxa (should all be unrecognized outgroups sequences (could be duplicates from the ingroup taxa): %s.',
                    ', '.join(orphan_taxa))
-    
+
     e_nochild = set(ages.index) - set(ages.parent)  # expected
     parent_nodata = set(ages[ages.type!='leaf'].parent) - set(ages_p.index)
     n_nochild = len(e_nochild)
-    logger.info("\nExpected nodes without children (leaves): %d" % (n_nochild,))
-    logger.info("Observed nodes not found as parents: %d" % \
-            len(set(ages.index) - set(ages_p[ages_p._merge=='both'].index)))
-    logger.info("Parent nodes without data: %d" % (len(parent_nodata),))
+    logger.info("Expected nodes without children (leaves): %d", n_nochild)
+    logger.info("Observed nodes not found as parents: %d",
+                len(set(ages.index) - set(ages_p[ages_p._merge=='both'].index)))
+    logger.info("Parent nodes without data: %d", len(parent_nodata))
     #assert len(nochild) == n_nochild, \
     #    "Found %d unexpected nodes without child:\n%s" % \
     #        (len(nochild) - n_nochild,
@@ -487,7 +451,7 @@ def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], co
 
     ages_spe2spe = ages_p[(ages_p.type.isin(('spe', 'leaf')))
                           & (ages_p.type_parent == 'spe')]
-    
+
     logger.info("\nShape ages speciation to speciation branches (no dup): %s",
                 ages_spe2spe.shape)
 
@@ -568,7 +532,7 @@ def add_robust_info(ages_p, ts=None, measures=['dist', 'dS', 'dN', 't'], compute
     if 'linktree' in ns:
         linktree = 'linktree'
         merged_ns.append(linktree)
-    
+
     if ts is None:
         nsts = ns[merged_ns]
     else:
@@ -578,7 +542,7 @@ def add_robust_info(ages_p, ts=None, measures=['dist', 'dS', 'dN', 't'], compute
         if np.all(nsts.really_robust.isna()):
             msg = 'Merging ns with ts failed: zero common tree?'
             linked_ts = ts[linktree] if linktree else ts.index.to_series()
-            pasted_heads = '\n'.join(line1 + '\t' + line2 for line1,line2 in
+            pasted_heads = '\n'.join(line1 + '\t' + line2 for line1, line2 in
                                      zip(str(ns.index.to_series().head()).split('\n'),
                                          str(linked_ts.head()).split('\n')))
             logger.error('%s Check:\nns.index\tts[%s]\n%s', msg, linktree, pasted_heads)
@@ -624,7 +588,7 @@ def npraw_group_average(gvalues, var_idx, weight_idx):
 
 def npraw_group_average_w0(gvalues):
     """Vectorized weighted average from numpy input (2D) to numpy output (1D).
-    
+
     From an array `gvalues` of dim (N, M) (lines, columns):
     - take the row weights in column 0;
     - ignore rows with NaN weight;
@@ -668,8 +632,7 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
 
     age_measures = ['age_'+m for m in measures]
     median_age_measures = ['median_age_'+m for m in measures]
-    control_ages = ages_forcontrol[ages_forcontrol.type\
-                                                       .isin(("spe", "leaf"))]\
+    control_ages = ages_forcontrol[ages_forcontrol.type.isin(("spe", "leaf"))]\
                                    .groupby("taxon", sort=False)[age_measures]\
                                    .median()\
                                    .rename(columns=dict(zip(age_measures,
@@ -678,7 +641,7 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
                  ' '.join(control_ages.columns))
     # FIXME: WHY does `median_taxon_ages` only have the 1st age_measure?
     #TODO: change for each measure as in `join_extra_ages`
-    
+
     if control_ages_CI is not None:
         toconcat = (control_ages,)
         if 'timetree_age' not in control_ages_CI.columns:
@@ -708,7 +671,7 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
 
     # Merge control branch lengths
     invalid_taxon_parent = ages_controled.taxon_parent.isna()
-    invalid_measures  = ages_controled[age_measures].isna().all(1)
+    invalid_measures = ages_controled[age_measures].isna().all(1)
     invalid_nodes = invalid_taxon_parent & ~invalid_measures
     # calibrated | branch_dS.isna()
     # Should be nodes whose parent node is the root.
@@ -792,7 +755,7 @@ def add_control_dates_lengths(ages, phyltree, control_ages_CI=None,
 def check_control_dates_lengths(control_brlen, phyltree, root,
                                 measures=MEASURES, out=None):
     """Check NA values and if the branches fit the phylogenetic tree.
-    
+
     Return: (unexpected_branches, lost_branches)"""
     get_phylchildren = lambda phyltree, ancdist: phyltree.items.get(ancdist[0], [])
 
@@ -855,7 +818,7 @@ def compute_dating_errors(ages_controled, control='median', measures=['dS'],
     ### Inplace
     for age_var, brlen_var in zip(age_vars, brlen_vars):
         #ages_controled = ages_controled.assign(**{
-        
+
         if control == 'median_':
             ctl_age, ctl_brlen = control+age_var, control+brlen_var
         else:
@@ -931,7 +894,6 @@ def join_extra_ages(new_ages_file, ages_data,
                       suffixes=('', '_parent'),
                       indicator=True, validate='many_to_one')
 
-
     # 2. Join to the previous data.
     ages = pd.merge(
                extra_ages.drop(columns=['calibrated', 'type', 'parent', 'taxon']),
@@ -953,7 +915,7 @@ def join_extra_ages(new_ages_file, ages_data,
                     inplace=True)
         #logger.debug('extra_ages.columns = %s', ' '.join(extra_ages.columns))
         age_measures = [am + suffixes[0]
-                        if am in ages_data.ages_controled.columns 
+                        if am in ages_data.ages_controled.columns
                         else am
                         for am in age_measures]
     measures=[am[4:] for am in age_measures]
@@ -1034,7 +996,7 @@ def lineage_evolutionary_rates(anc, ages_file,
     ages = pd.merge(ages, aS.join(ns, how='outer'),
                     left_on='subgenetree', right_index=True, sort=False,
                     validate='many_to_one')
-                     
+
     ages_controled_withnonrobust, control_ages, control_brlen =\
         add_control_dates_lengths(ages, phyltree, control_ages_CI, measures,
                                   control_condition, control_names)
@@ -1121,7 +1083,7 @@ def display_lineage_evolutionary_rates(lineage_rates, lineage_brlen,
     rates = lineage_rates[(br_m, 'median')]
     print('Min of median %s rate: %s (%s)' %(m, rates.min(), rates.idxmin()))
     print('Max of median %s rate: %s (%s)'%(m, rates.max(), rates.idxmax()))
-    
+
     # Violin plot of rates
     ages_data = ages_controled\
                     .assign(
@@ -1134,7 +1096,7 @@ def display_lineage_evolutionary_rates(lineage_rates, lineage_brlen,
     ax = sb.violinplot('branchtaxa', br_m+'_rate',
                        data=ages_data,
                        width=1, order=ordered_branches_bylen)
-    
+
     values = ages_data.groupby('branchtaxa', sort=False)[br_m+'_rate']
     #rate_q = values.quantile([0.01, 0.99]).values
     #rate_range = rate_q[1] - rate_q[0]
@@ -1171,7 +1133,7 @@ def display_lineage_evolutionary_rates(lineage_rates, lineage_brlen,
     fig, (cax,ax) = plt.subplots(1, 2, figsize=figsize,
                                  gridspec_kw={'width_ratios': [1,20]})
     cax.set_position(cax.get_position().anchored('SE').shrunk(1, 0.5).shrunk_to_aspect(20))
-    
+
     lines, coords, subaxes = plottree(phyltree,
                  lambda t,nd: [(ch, control_brlen.loc[(nd[0], ch), control+'_brlen'])
                                  for ch,d in t.items.get(nd[0], [])],
@@ -1231,7 +1193,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
     if debug:
         print('%d rows queried for mean (ages_controled)' % ages_controled.shape[0])
         check_nan(sgg[branchtime].sum(), 'sgg[branchtime].sum()')
-    
+
     if poisson:
         # Sum aggregation + division broadcasted on columns
         # This is the maximum likelihood estimate for a constant Poisson rate.
@@ -1261,7 +1223,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
     if debug:
         check_nan(cs_rates, 'rate means (aligned to ages_controled)')
         check_inf(cs_rates, 'rate means (aligned to ages_controled)')
-    
+
         diff_subgenetrees = set(ages_controled.subgenetree).difference(cs_rates.index)
         if diff_subgenetrees:
             logger.warning('%d unmatched subgenetrees in ages_controled: %s',
@@ -1283,7 +1245,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
         age_measures = [dm.replace('branch_', 'age_') for dm in dist_measures]
         debug_cols = (groupby_cols + age_measures +
                       [v+'_parent' for v in dist_measures + age_measures])
-                      
+
         #logger.debug('rate_dev.shape = %s; columns = %s', rate_dev.shape, rate_dev.columns)
         rate_dev_na_rows = check_nan(rate_dev, 'rate_dev')
         rate_dev_inf_rows = check_inf(rate_dev, 'rate_dev')
@@ -1319,7 +1281,7 @@ def compute_branchrate_std(ages_controled, dist_measures,
     ### subtract branch rate with mean rate, then square.
     #rate_dev_dict = {d: (tmp[d] / tmp[branchtime] - tmp[r])**2
     #                 for d,r in zip(dist_measures, rate_measures)}
-    
+
     #rate_dev = pd.DataFrame(rate_dev_dict)\
     #                .join(tmp[['subgenetree', branchtime]], sort=False)
 
@@ -1418,9 +1380,9 @@ def compute_correlated_rate(ages_controled, dist_measures,
             logger.warning('Selected 0 rows with `mean_condition`.')
     elif not triplet_rate_corrstds.shape[0]:
         logger.warning('0 rows in data')
-    
+
     #return triplet_rate_corrstds
-    return triplet_rate_corrstds.groupby(ages['subgenetree'], sort=False).mean()
+    return triplet_rate_corrstds.groupby(ages_controled['subgenetree'], sort=False).mean()
 
 
 def subset_on_criterion_tails(criterion_serie, ages=None, ages_file=None,
@@ -1429,20 +1391,20 @@ def subset_on_criterion_tails(criterion_serie, ages=None, ages_file=None,
     """From the input data, output two files:
     - one with the lower quantile of criterion values,
     - one with the upper quantile.
-    
+
     Otherwise thresholds can be used as a tuple (lower_tail_max, upper_tail_min)
-    
+
     output files will be named as `outbase + ("-lowQ%d" % nquantiles) + ".tsv"`
     """
     ages_c = merge_criterion_in_ages(criterion_serie, ages, ages_file, criterion_name)
-        
+
     print(ages.columns)
-    
+
     if not outbase and ages_file:
-        outbase, _ = os.path.splitext(ages_file)
+        outbase, _ = op.splitext(ages_file)
     elif not outbase and not ages_file:
         outbase = "dataset"
-    
+
     if not thresholds:
         q = 1 / nquantiles
         low_lim = criterion_serie.quantile(q)
@@ -1451,9 +1413,9 @@ def subset_on_criterion_tails(criterion_serie, ages=None, ages_file=None,
         outhigh = "%s-%shighQ%d.tsv" % (outbase, criterion_name, nquantiles)
     else:
         low_lim, high_lim = thresholds
-        outlow = outbase + "-%slow%1.3f.tsv" % (criterion_name, low_lim) 
+        outlow = outbase + "-%slow%1.3f.tsv" % (criterion_name, low_lim)
         outhigh = outbase + "-%shigh%1.3f.tsv" % (criterion_name, high_lim)
-        
+
     print("Output %s values outside %s (from %d quantiles)" % (criterion_name,
                                     [low_lim, high_lim],
                                     (nquantiles if not thresholds else None)))
@@ -1476,10 +1438,10 @@ def get_tails_on_criterion(df, criterion_name, nquantiles=4):
 def annot_quantiles_on_criterion(ages, criterion_serie, criterion_name=None,
                                  nquantiles=4, transform=None):
     assert criterion_name not in ages.columns
-    
+
     # Exclude the points 0. and 1.
     q = np.linspace(1./nquantiles, 1, nquantiles-1, endpoint=False)
-    
+
     if transform is not None:
         criterion_serie = transform(criterion_serie)
         criterion_name = transform.__name__ + '_' + criterion_name
@@ -1503,7 +1465,7 @@ def _violin_spe_ages_vs_criterion_quantiles(annot_df, criterion_name, isin=None,
         # Look at extreme quantiles only
         isin = (annot_df[Q_col].min(), annot_df[Q_col].max())
         logger.info(isin)
-        
+
     ax = sb.violinplot(x="taxon", y="age_dS", hue=Q_col,
                        data=annot_df[(annot_df.type == "spe")
                                      & annot_df[Q_col].isin(isin)],
@@ -1578,7 +1540,7 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts=None,
     if 'aberrant_dists' in available_robust_info:
         control_condition_list.append('(aberrant_dists == 0)')
     control_condition = ' & '.join(control_condition_list)
-    
+
     ages_controled_withnonrobust, control_ages, control_brlen =\
         add_control_dates_lengths(ages, phyltree, control_ages_CI, measures,
                                   control_condition, control_names=control_names)
@@ -1600,7 +1562,7 @@ def analyse_age_errors(ages_file, root, phyltree, control_ages_CI, ts=None,
                 [compute_dating_errors(ages_controled_withnonrobust, ctl, measures)
                  for ctl in ['median']+control_names],
                 axis=1, sort=False, copy=False)
-    
+
     return age_analysis_data(ages_controled, ages_controled_withnonrobust, ns,
                              control_ages, control_brlen, mean_errors)
 
@@ -1609,7 +1571,7 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
                    controls=('timetree', 'dosreis'), **datasets):
     """Splitted violinplot of taxon~age_dS with hue='data'.
     Use **datasets to name your datasets: ex um1=df1, um2=df2.
-    
+
     From Jupyter Notebook `Compare_dating_methods.ipynb`.
     """
     stacked = pd.concat([df.assign(data=paramname) for paramname, df in datasets.items()], sort=False,
@@ -1617,12 +1579,12 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
     #display_html(stacked.head())
     # Show one value for x and data.
     hues = sorted(datasets.keys()) if hue_order is None else hue_order
-    
+
     def kurtosis(a): return stats.kurtosis(a, axis=None, fisher=True, nan_policy='omit')
-    
+
     scales = [iqr95, iqr90, iqr, mad, mean_absdevmed, 'std', trimstd]
     centers = ['median', 'median', 'median', 'median', 'median', 'mean', trimmean]
-    
+
     subgroup_dispersion = stacked.groupby([x, 'data'])[y].agg(scales + ['skew', kurtosis, 'count']).unstack('data')
     subgroup_disptest = stacked.groupby(x)[[y, 'data']]\
         .apply(lambda g: pd.Series(stats.levene(*(g.loc[g.data==h, y].dropna() for h in hues))))\
@@ -1633,7 +1595,7 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
                                                                             ['rejectH0', 'pval_corr']]),
                                           columns=subgroup_disptest.index).T
     subgroup_disp = pd.concat((subgroup_dispersion, subgroup_disptest, subgroup_disptest_corr), axis=1, sort=False)
-    
+
     #scalename = getattr(scale, '__name__', scale)
     display_html(
         subgroup_disp\
@@ -1646,19 +1608,19 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
         .highlight_max(axis=1, subset=[('kurtosis', d) for d in datasets], color='sandybrown'))#\
         #.apply(lambda values: ['color: red' if v is True else '' for v in values],
         #       subset=pd.IndexSlice[:, pd.IndexSlice[('correction', 'rejectH0')]]))
-    
+
     #assert center in ('median', 'mean')
     ltests = []
     for center,scale in zip(centers, scales):
         ltests.append(multi_vartest(y, 'data', by=x, data=stacked, ref_hue=hues, center=center, scale=scale))
         print('Multi var test (%s, %s):' %(getattr(center, '__name__', center), getattr(scale, '__name__', scale)),
               ltests[-1], '\n-----')
-    
+
     ax = sb.violinplot(x, y, hue='data', data=stacked, order=order, hue_order=hue_order,
                        split=split, width=width, cut=0)
     plt.setp(ax.get_xticklabels(), rotation=45, va='top', ha='right')
     violin_handles, violin_labels = ax.get_legend_handles_labels()
-    
+
     # medians for each hue group.
     sb.pointplot(x, y, hue='data', data=stacked, order=order, hue_order=hue_order, dodge=width/(len(datasets)+1),
                  join=False, palette=['#4c4c4c'], estimator=np.nanmedian,
@@ -1677,7 +1639,7 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
 #             markersize=18)
     X = np.arange(len(stacked[x].unique()) if order is None else len(order))
     xlines = [x for xanc in X for x in [xanc-0.5, xanc+0.5, None]]
-    
+
     for ctl in controls:
         ylines = [y for anc in ordered_simii_anc for y in [calibrations[ctl+'_age'].loc[anc]]*2 + [None]]
         color = 'y' if ctl == 'timetree' else 'b'
@@ -1688,7 +1650,7 @@ def compare_params(x='taxon', y='age_dS', split=True, order=None, hue_order=None
                bottom=calibrations[ctl+'_CI95_inf'].loc[order],
                color='y', alpha=0.5, zorder=(-1 if ctl=='timetree' else -2), width=0.95,
                label=ctl+' 95% interval')
-    
+
     handles, labels = ax.get_legend_handles_labels()
     handles, labels = zip(*sorted([(h,l) for h,l in zip(handles, labels) if h not in point_handles],
                                   key=lambda hl: hl[0] not in violin_handles))
@@ -1707,7 +1669,7 @@ def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
     taxon_col: groups to make histograms;
     positions: histogram bottoms from each group;
     order: ordered list of taxa for positioning.
-    
+
     invert: Whether the first histogram is plotted *under* the branch
     (useful for inverted yaxis.)"""
     # positions is a bad name. It refers to the bottom of the histograms.
@@ -1729,14 +1691,14 @@ def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
         x = [x]
         data = [data]
         labels = [labels]
-    
+
     if len(x) > 2:
         raise NotImplementedError("Can't handle more than 2 histograms.")
-    
+
     if ax is None:
         ax = plt.gca()
     xbound = ax.get_xbound()
-    
+
     assert positions is not None, "positions argument is mandatory (list/array)"
     positions = np.asarray(positions)
     if order is not None: order = np.asarray(order)
@@ -1769,7 +1731,7 @@ def plottree_add_hists(taxon_col, x, positions, data=None, nbins=100,
             #pos_group[uniq_pos_index] = np.NaN  # NaN is always different from itself, so is always unique
     else:
         distinct_positions = [np.arange(len(positions))]  # FIXME, should be integer
-    
+
     #for i, (vtaxon, xi) in enumerate(zip(var_taxon, var_xs), start=1):
     bars = []
     for i, (xi, dat, lab) in enumerate(zip(x, data, labels), start=(int(invert))):
@@ -2114,8 +2076,6 @@ def lassoselect_and_refit(a, y, features, atol=1e-2, method='elastic_net',
         display_html(preslopes)
 
     assert set(selected_features) == set(preslopes.data.drop('const').index)
-    # Test of homoscedasticity
-    #sms.linear_harvey_collier(fit)
     return fitlasso, fit, pslopes, preslopes
 
 
@@ -2304,7 +2264,7 @@ class fullRegression(object):
         self.na_amount = na_amount = alls.isna().sum(axis=0).sort_values(ascending=False)
         print('Amount of NA:', na_amount.head(10), sep='\n', file=self.out)
         print('Amount of Inf:', np.isinf(alls.select_dtypes(np.number)).sum(axis=0).sort_values(ascending=False).head(10), sep='\n', file=self.out)
-        
+
         too_many_na = na_amount.index[(na_amount >= 0.9*alls.shape[0])].tolist()
         many_na = na_amount.index[(na_amount >= 0.5*alls.shape[0])].tolist()
         if too_many_na:
@@ -2416,7 +2376,6 @@ class fullRegression(object):
     #def do_fitall(self):
     def do_undecorred_fit(self):
         self.do_transform()
-        logger = self.logger
         a_n = self.a_n
         y = self.responses[0]
         features = self.features
@@ -2679,7 +2638,6 @@ class fullRegression(object):
 
     # Could be: @property(inde_features)
     def do_decorred_fa(self):
-        logger = self.logger
         a_n_inde = self.a_n_inde  # Could make this a property, triggering do_decorr.
         inde_features = [ft for ft in self.features if ft in a_n_inde]
         #print('inde_features', len(inde_features), file=self.out)
@@ -2746,7 +2704,7 @@ class fullRegression(object):
             RFcrossval_r2 = randomforest_regression(self.a_n_inde[self.inde_features],
                                                     self.a_n_inde[y],
                                                     out=self.out)
-        except joblib.externals.loky.process_executor.TerminatedWorkerError:
+        except TerminatedWorkerError:
             logger.error("Can't compute RFcrossval_r2 from random forest due to parallel error (TerminatedWorkerError)")
 
 
@@ -2794,7 +2752,7 @@ class fullRegression(object):
     def do_drop_bad(self, ref_rescale=None, rescale=True):
         """
         Drop colinear features (auto selection) and bad properties:
-            
+
         - colinear features in columns;
         - bad properties in rows.
         """
@@ -2807,7 +2765,7 @@ class fullRegression(object):
         print(self.suggest_multicolin, file=self.out)
 
         print('\n#### Refit without most colinear features', file=self.out)
-        
+
         print('Drop trees with bad properties (before removing colinear features)', file=self.out)
         bad_props = {}
         missing_bad_props = set()
@@ -2854,7 +2812,7 @@ class fullRegression(object):
                   bad_data_rows.sum(), (~bad_data_rows).sum()), file=self.out)
         bad_props_ttests = pd.DataFrame(bad_props_ttests, index=['T', 'P']).T
         na_ttests = bad_props_ttests['P'].isna()
-        
+
         try:
             bad_props_ttests['P_over'] = bad_props_ttests.apply(lambda row:
                                         (1 - row['P']/2 if row['T']<=0 else row['P']/2),
@@ -2889,7 +2847,7 @@ class fullRegression(object):
         good_features = [ft for ft in inde_features if ft not in set(bad_props)]
 
         var_ranges = a_n_inde2[good_features].max(axis=0) - a_n_inde2[good_features].min(axis=0)
-        
+
         #check_constants(a_n_inde2[inde_features2])
         self.inde_features2, self.features_postnorm_constant = [], []
         for ft in good_features:
@@ -3161,7 +3119,7 @@ class fullRegression(object):
         for decorred_ft in set(top_features).intersection(self.decorr_source):
             print('Decorred %r: %s' % (decorred_ft, ' '.join(self.decorred[decorred_ft])),
                   file=self.out)
-            
+
         top_features = [self.decorr_source.get(ft, ft) for ft in top_features]
         try:
             response_transform = self.suggested_transform[y].__name__
@@ -3169,7 +3127,7 @@ class fullRegression(object):
             response_transform = 'notransform'
 
         retro_trans = make_retro_trans(response_transform)
-                    
+
         #tr_mean, tr_std = self.reslopes2.loc[y,
         #                            ['transformed mean', 'transformed std']]
         #FIXME: don't remember if it's after dropping bad properties.
@@ -3273,7 +3231,7 @@ class fullRegression(object):
                                 **dict(standardize_dataframe(a_n_inde2[self.bin_inde_features2],
                                                         a_n_inde2.loc[training_observations2]))
                                 )
-        
+
         #pred_reslopes2 = prediction.do_bestfit()
         common_features = set(self.inde_features2).intersection(prediction.inde_features2)
         logger.info('%d common features.', len(common_features))
@@ -3776,11 +3734,11 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False, nfeatur
     colorpairs = [func(c, frac)
                   for c in cycled
                   for func, frac in [(fade_color_hex, 0.7), (darken_hex, 0.3)]]
-    
+
     for ft, i in zip(reg_approx.refitlasso2.params.drop('const').index, generate_slideshow(hr)):
         fig = plt.figure()
         gridspec = fig.add_gridspec(2, 2)
-        
+
         gs00 = gridspec[0,0] if ft in reg_approx.decorr_source else gridspec[:,0]
         ax00 = fig.add_subplot(gs00)
         bicmap = mpl.colors.ListedColormap(['#393b79', '#e6550d'])
@@ -3817,7 +3775,7 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False, nfeatur
                         'training (tr err > %g) (n=%4d)' % (err_threshold, n_trained - n_low_err_trained),
                         'testing  (tr err ≤ %g) (n=%4d)' % (err_threshold, n_low_err_tested),
                         'testing  (tr err > %g) (n=%4d)' % (err_threshold, n_tested - n_low_err_tested)])
-        ax1.step(bins, heights[1].tolist() + [heights[1][-1]], 
+        ax1.step(bins, heights[1].tolist() + [heights[1][-1]],
              bins, heights[3].tolist() + [heights[3][-1]],
              where='post', color='k', alpha=0.8)
         ax1.legend()
@@ -3894,7 +3852,7 @@ def predict_nonrobust(reg_approx, same_alls, hr, renames, lang_fr=False, nfeatur
     fig.suptitle('Compare original fit VS prediction features, step-by-step.')
     hr.show(fig)
     plt.close()
-    
+
     fig, axes = plt.subplots(ncols=3, figsize=(14,7))
     axes[0].scatter(reg_approx.a_n_inde2[ft],
                     (prediction.a_t.loc[training_observations2, yvar]

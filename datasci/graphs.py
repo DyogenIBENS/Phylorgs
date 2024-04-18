@@ -19,6 +19,7 @@ import pandas as pd
 import seaborn as sns
 
 from .stats import car2pol, cov2cor
+from .compare import pairwise_intersections, align_sorted
 
 from dendro.bates import dfw_descendants_generalized, rev_dfw_descendants, iter_distleaves
 import matplotlib.patches as patches
@@ -33,39 +34,8 @@ logger = logging.getLogger(__name__)
 #mpl.style.use('softer')
 
 def softstyle():
-    mpl.style.use('softer')
     ## Change all black to dark grey
-    #grey10 = '#1a1a1a'
-    #grey45 = '#737373'
-    #grey80 = '#CCCCCC'
-    #mpl.rcParams['text.color'] = grey10
-    #mpl.rcParams['axes.edgecolor'] = grey10
-    #mpl.rcParams['axes.labelcolor'] = grey10
-    #mpl.rcParams['axes.spines.top'] = False
-    #mpl.rcParams['axes.spines.right'] = False
-    #mpl.rcParams['xtick.color'] = grey10
-    #mpl.rcParams['ytick.color'] = grey10
-    #mpl.rcParams['grid.color'] = grey80
-    #mpl.rcParams['boxplot.boxprops.color'] = grey10
-    #mpl.rcParams['boxplot.capprops.color'] = grey10
-    #mpl.rcParams['boxplot.flierprops.color'] = grey10
-    #mpl.rcParams['boxplot.flierprops.markeredgecolor'] = grey10
-    #mpl.rcParams['boxplot.whiskerprops.color'] = grey10
-    #mpl.rcParams['hatch.color'] = grey10
-    #mpl.rcParams['axes.prop_cycle'] = mpl.cycler('color', ['4C72B0', '55A868', 'C44E52', '8172B2', 'CCB974', '64B5CD'])
-    #mpl.rcParams['grid.linestyle'] = ':'
-    #mpl.rcParams['patch.edgecolor'] = grey10
-    #mpl.rcParams['boxplot.flierprops.markeredgecolor'] = grey10
-    #mpl.rcParams['boxplot.capprops.color'] = grey10
-    #mpl.rcParams['legend.facecolor'] = grey45
-    #mpl.rcParams['legend.framealpha'] = 0.2
-    ##mpl.rcParams['legend.edgecolor'] = grey10
-    #mpl.rcParams['savefig.facecolor'] = 'none'
-    ##mpl.rcParams['savefig.frameon'] = False  #background frame transparent
-    ##mpl.rcParams['savefig.transparent'] = True # all background transparent
-    #                                            # (including ggplot2 style)
-##mpl.style.use('ggplot')
-    ##pd.set_option('display.max_colwidth', 85)
+    mpl.style.use('softer')
 
 
 ### Helping functions ###
@@ -205,6 +175,17 @@ def stackedbar(x, arr, ax=None, zero=0, **kwds):
         if bottom is not None:
             bottom += row
     return stacked_bars
+
+
+def intersection_plot(**named_sets):
+    labels, *values = pairwise_intersections(**named_sets)
+
+    intersections = np.array(values)
+    stackedbar(np.arange(len(labels)), intersections, zero=1, orientation='horizontal')
+    ax = plt.gca()
+    ax.set_yticks(np.arange(len(labels)))
+    ax.set_yticklabels(['%s ^ %s' % lab for lab in labels], size='large')
+    return ax
 
 
 def lim_to_bars(low, high):
@@ -1577,8 +1558,6 @@ class brokenAxes(object):
     #def set_
 
 
-
-
 # UNUSED.
 def extract_dfstyle(styled_df):
     cellcols = np.empty(styled_df.data.shape, dtype=tuple)
@@ -1594,7 +1573,7 @@ def dfstyle2mpltable(styled_df, **kwargs):
     cellcols, celltxts = extract_dfstyle(styled_df)
     return plt.table(cellText=celltxts, cellColours=cellcols, rowLabels=styled_df.index,
                      colLabels=styled_df.columns, **kwargs)
-    
+
 def dfstyle2heatmap(styled_df):
     #cellcols, celltxts = extract_dfstyle(styled_df)
     cmap = plt.get_cmap()

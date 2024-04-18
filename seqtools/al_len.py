@@ -19,7 +19,7 @@ def main():
     p.add_argument('infiles', nargs='*', help='[stdin]')
     p.add_argument('-f', '--fmt', help='[guess from extension if not stdin]')
     p.add_argument('-l', '--from-list', action='store_true',
-                   help='Each line of the input files designate an alignment file')
+                   help='Each line of the input files designates an alignment file')
 
     args = p.parse_args()
     if args.fmt:
@@ -53,4 +53,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
