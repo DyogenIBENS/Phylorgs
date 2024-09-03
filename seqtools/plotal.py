@@ -114,7 +114,14 @@ RESIDUE_CMAPS = {
             'H': '#31a354', 'K': '#74c476', 'R': '#a1d99b',  # Green
             'I': '#8c6d31', 'L': '#bd9e39', 'M': '#e7ba52', 'V': '#e7cb94',  # Yellow
             'E': '#843c39', 'D': '#ad494a', 'N': '#8c564b', 'Q': '#c49c94',  # Red/Brown
-            'A': '#7b4173', 'G': '#a55194', 'P': '#9467db', 'S': '#ce6dbd', 'T': '#de9ed6'} # Magenta
+            'A': '#7b4173', 'G': '#a55194', 'P': '#9467db', 'S': '#ce6dbd', 'T': '#de9ed6'}, # Magenta
+        'phylorgs2': { # based on tab20b colors with the dayhoff6 grouping
+            'C': '#e6550d',
+            'F': '#9c9ede', 'Y': '#6b6ecf', 'W': '#5254a3',  # Blue
+            'H': '#cedb9c', 'K': '#637939', 'R': '#b5cf6b',  # Green
+            'I': '#8c6d31', 'L': '#bd9e39', 'M': '#e7ba52', 'V': '#e7cb94',  # Yellow
+            'E': '#843c39', 'D': '#ad494a', 'N': '#d6616b', 'Q': '#e7969c',  # Red/Brown
+            'A': '#9467db', 'G': '#a55194', 'P': '#7b4173', 'S': '#ce6dbd', 'T': '#de9ed6'} # Magenta
         },
     'nucl': {
         'clustalx': {'A': '#b32200', 'C': '#3991f1', 'G': '#e6c200', 'T': '#44bb11'}, # This should be forbidden
@@ -349,7 +356,7 @@ class AlignPlotter(object):
                                                   'get_label': get_label_biophylo,
                                                   'label_params': {'fontsize': 'x-small'}}),
                                       ('tick_params', {'labelright': False}),
-                                      ('grid', {'b': False})]}
+                                      ('grid', {'visible': False})]}
         return plot_properties, plot_funcs
 
 
@@ -396,9 +403,6 @@ class AlignPlotter(object):
         self.plot_funcs['al'][0][1].update(cmap=cmap, norm=norm)
         self.plot_funcs['al'].append(('set_yticks', {'ticks': np.arange(alint.shape[0])}))
         #TODO: Add the *last* xtick showing alignment length.
-        #self.plot_properties['al']['xlim'] = (0, alint.shape[1]) #pcolormesh
-        self.plot_properties['al']['xlim'] = (-0.5, alint.shape[1]-0.5) #imshow
-        #TODO: Add plt.colorbar for residue colors.
 
         if seqlabels is not None:
             self.plot_funcs['al'].append(('set_yticklabels',
@@ -446,7 +450,7 @@ class AlignPlotter(object):
             align = reorder_al(align, records, record_order)
 
         if slice:
-            slstart, slend, slstep = parse_slice(slice) #[int(pos) for pos in slice.split(':')]
+            slstart, slend, slstep = parse_slice(slice)
             if altype == 'codon':
                 slstart *= 3
                 slend   *= 3
@@ -702,7 +706,7 @@ class AlignPlotter(object):
                         #extrafunc = lambda **kw: extrafuncname(ax, **kw)
                     extrafunc(**extra_kwargs)
                 except BaseException as err:
-                    err.args += ('extra func %d %r' % (i, extrafunc),)
+                    err.args += ('Plot=%r, extra func %d %r' % (plot, i, extrafunc),)
                     raise
 
             plot_prop = self.plot_properties[plot]
@@ -729,15 +733,24 @@ class AlignPlotter(object):
                     ax = plt.subplot2grid((rows,cols), pos, colspan=colspan, fig=fig, sharex=ax, autoscalex_on=False)
                 axes.append(ax)
 
-        # On the last plot:
+        length = self.alint.shape[1]
+        # Adjust X-ticks on the last plot:
+        xticks = [xt-1 for xt in ax.get_xticks() if (1 < xt < length-1)]  # Ticks are zero-based, but we want to display one-based coordinates at round locations (like 100 and not 101).
+
         if self.slstart:
             # Update the displayed xticklabels if start position > 0
             slstart = self.slstart // 3 if self.altype=='codon' else self.slstart
-            
-            xticks = ax.get_xticks()
-            ax.set_xticks(xticks)
-            ax.set_xticklabels(['%g' % x for x in xticks+slstart])
+        else:
+            slstart = 0
 
+        xticks.insert(0, 0)
+        xticks.append(length - 1)
+        logger.debug('xlim = %s; xticks = %s', ax.get_xlim(), xticks)
+
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(['%g' % (x+slstart+1) for x in xticks])
+
+        ax.set_xlim(-0.5, self.alint.shape[1]-0.5)
         fig.tight_layout()
         self.fig, self.axes = fig, axes
 
