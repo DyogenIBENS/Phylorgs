@@ -332,7 +332,7 @@ def load_prepare_ages(ages_file, ts=None, measures=['dist', 'dS', 'dN', 't'], co
 
     # Convert beast string ranges to floats, in 2 columns:
     rangevars = ['height_95%_HPD', 'height_range', 'length_95%_HPD', 'length_range', 'rate_95%_HPD', 'rate_range']
-    if ages.columns.intersection(rangevars):
+    if not ages.columns.intersection(rangevars).empty:
         logger.debug('ages[rangevars].dtypes = %s', ages[rangevars].dtypes)
         for var in rangevars:
             parsedrange = ages[var].replace("None", "NaN").astype(str)\
